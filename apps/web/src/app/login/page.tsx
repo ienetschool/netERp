@@ -15,14 +15,25 @@ const loginFormSchema = z.object({
 
 type LoginForm = z.infer<typeof loginFormSchema>;
 
+/** Seeded demo accounts (packages/prisma/seed) — dev data only, password Admin123!. */
+const DEMO_ACCOUNTS = [
+  { label: 'Admin', email: 'admin@demo.local', hint: 'Super admin' },
+  { label: 'Manager', email: 'manager@demo.local', hint: 'Branch manager' },
+  { label: 'Finance', email: 'finance@demo.local', hint: 'Payroll approver' },
+] as const;
+
+const DEMO_PASSWORD = 'Admin123!';
+
 export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [demoPending, setDemoPending] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginFormSchema),
@@ -38,6 +49,22 @@ export default function LoginPage() {
       setServerError(e instanceof Error ? e.message : 'Sign in failed');
     }
   });
+
+  /** Autofills the form with a demo account and submits right away. */
+  const signInAsDemo = async (email: string) => {
+    setServerError(null);
+    setDemoPending(email);
+    setValue('email', email, { shouldValidate: true });
+    setValue('password', DEMO_PASSWORD, { shouldValidate: true });
+    try {
+      await login(email, DEMO_PASSWORD);
+      router.push('/');
+    } catch (e) {
+      setServerError(e instanceof Error ? e.message : 'Sign in failed');
+    } finally {
+      setDemoPending(null);
+    }
+  };
 
   return (
     <main className="flex min-h-screen items-center justify-center p-6">
@@ -106,6 +133,33 @@ export default function LoginPage() {
             {isSubmitting ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+
+        <div className="mt-6 rounded-lg border border-dashed border-[var(--erp-border)] p-3">
+          <p className="mb-2 text-xs font-medium text-[var(--erp-muted)]">
+            Demo accounts — one click signs you in (password {DEMO_PASSWORD}):
+          </p>
+          <div className="grid gap-2">
+            {DEMO_ACCOUNTS.map((account) => (
+              <button
+                key={account.email}
+                type="button"
+                className="flex items-center justify-between rounded-md border border-[var(--erp-border)] bg-[var(--erp-surface)] px-3 py-2 text-left text-sm hover:border-[var(--erp-accent)] disabled:opacity-50"
+                disabled={demoPending !== null || isSubmitting}
+                onClick={() => {
+                  void signInAsDemo(account.email);
+                }}
+              >
+                <span className="font-medium">{account.label}</span>
+                <span className="text-xs text-[var(--erp-muted)]">
+                  {demoPending === account.email ? 'Signing in…' : account.hint}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--erp-muted)]">
+            Sign-in needs the API and database running (see .freebuff/run.md).
+          </p>
+        </div>
       </div>
     </main>
   );
