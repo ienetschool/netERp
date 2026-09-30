@@ -1,0 +1,44 @@
+{
+  "name": "erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Enterprise Office ERP — modular monolith (NestJS API, Next.js web, BullMQ worker, PostgreSQL + Prisma, Redis)",
+  "license": "UNLICENSED",
+  "packageManager": "npm@11",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "db:generate": "npm run db:generate -w @erp/prisma",
+    "db:migrate": "npm run db:migrate -w @erp/prisma",
+    "db:migrate:deploy": "npm run db:migrate:deploy -w @erp/prisma",
+    "db:seed": "npm run db:seed -w @erp/prisma",
+    "db:studio": "npm run db:studio -w @erp/prisma",
+    "dev:api": "npm run start:dev -w @erp/api",
+    "dev:web": "npm run dev -w @erp/web",
+    "dev:worker": "npm run start:dev -w @erp/worker",
+    "compose:up": "docker compose up -d postgres redis minio",
+    "compose:down": "docker compose down"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^7.4.4"
+  },
+  "allowScripts": {
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "argon2@0.41.1": true,
+    "msgpackr-extract@3.0.4": true,
+    "prisma@6.19.3": true,
+    "@prisma/client@6.19.3": true,
+    "@scarf/scarf": false
+  }
+}

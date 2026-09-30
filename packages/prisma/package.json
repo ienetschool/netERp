@@ -1,0 +1,30 @@
+{
+  "name": "@erp/prisma",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src seed --max-warnings 0",
+    "test:unit": "vitest run --passWithNoTests",
+    "db:generate": "dotenv -e ../../.env -- prisma generate",
+    "db:validate": "dotenv -e ../../.env -- prisma validate",
+    "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "db:migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "db:seed": "tsx seed/seed.ts",
+    "db:studio": "dotenv -e ../../.env -- prisma studio"
+  },
+  "prisma": {
+    "seed": "tsx seed/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "argon2": "^0.41.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prisma": "^6.5.0"
+  }
+}

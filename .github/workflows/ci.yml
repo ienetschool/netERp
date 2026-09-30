@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prisma generate
+        run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Typecheck
+        run: npm run typecheck --workspaces --if-present
+
+      - name: Lint
+        run: npm run lint --workspaces --if-present
+
+      - name: Unit tests
+        run: npm run test:unit --workspaces --if-present
+
+      - name: Build packages
+        run: npm run build --workspaces --if-present
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Verify migrations apply to a clean database
+        run: npm run db:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+      - name: Migration verification service
+        if: always()
+        # Placeholder step documenting that a real run needs the postgres service below.
+        run: echo "Enable the postgres service block for full migration verification."
+
+  postgres-service-variant:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: erp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Prisma generate
+        run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp
+      - name: Apply migrations
+        run: npm run db:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp
+      - name: Seed
+        run: npm run db:seed
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp
+      - name: Build
+        run: npm run build --workspaces --if-present
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp

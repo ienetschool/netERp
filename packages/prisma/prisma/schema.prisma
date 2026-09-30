@@ -1,0 +1,619 @@
+// Enterprise Office ERP — Prisma schema (Stage 1: Foundation + Core Platform)
+// Source: DATA-MODEL.md (sections 3–8, 17–23), ARCHITECTURE.md §16.
+// Conventions: UUID PKs, timestamps, created_by/updated_by, organization scoping,
+// exact decimals for money, explicit relations and indexes.
+// Later stages (HR, Payroll, Procurement, Inventory, Sales, Accounting) extend
+// this schema with their own vertical-slice migrations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Organization (DATA-MODEL §4)
+// ---------------------------------------------------------------------------
+
+model Company {
+  id                 String   @id @default(uuid())
+  code               String   @unique
+  name               String
+  legalName          String?
+  registrationNumber String?
+  taxNumber          String?
+  timezone           String   @default("UTC")
+  address            String?
+  phone              String?
+  email              String?
+  website            String?
+  baseCurrencyId     String?
+  fiscalYearStart    Int      @default(1) // month number 1-12
+  status             String   @default("ACTIVE")
+  settings           Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  createdById        String?
+  updatedById        String?
+
+  branches         Branch[]
+  departments      Department[]
+  costCenters      CostCenter[]
+  warehouses       Warehouse[]
+  financialPeriods FinancialPeriod[]
+  accounts         Account[]
+
+  @@index([status])
+}
+
+model Branch {
+  id                String   @id @default(uuid())
+  companyId         String
+  code              String
+  name              String
+  type              String?
+  timezone          String   @default("UTC")
+  address           String?
+  phone             String?
+  email             String?
+  managerEmployeeId String?
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  departments Department[]
+  warehouses  Warehouse[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+}
+
+model Department {
+  id                String   @id @default(uuid())
+  companyId         String
+  branchId          String
+  parentId          String?  @map("parent_department_id")
+  code              String
+  name              String
+  managerEmployeeId String?
+  costCenterId      String?
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  company  Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch   Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  parent   Department?  @relation("DepartmentTree", fields: [parentId], references: [id])
+  children Department[] @relation("DepartmentTree")
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, status])
+}
+
+model CostCenter {
+  id                String   @id @default(uuid())
+  companyId         String
+  branchId          String?
+  code              String
+  name              String
+  description       String?
+  managerEmployeeId String?
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+}
+
+model Warehouse {
+  id                String   @id @default(uuid())
+  companyId         String
+  branchId          String
+  code              String
+  name              String
+  type              String?
+  address           String?
+  managerEmployeeId String?
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdById       String?
+  updatedById       String?
+
+  company   Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch    Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  locations WarehouseLocation[]
+
+  @@unique([companyId, code])
+  @@index([companyId, branchId, status])
+}
+
+model WarehouseLocation {
+  id           String   @id @default(uuid())
+  warehouseId  String
+  code         String
+  name         String
+  parentId     String?  @map("parent_location_id")
+  locationType String?
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  parent    WarehouseLocation?  @relation("LocationTree", fields: [parentId], references: [id])
+  children  WarehouseLocation[] @relation("LocationTree")
+
+  @@unique([warehouseId, code])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Currency (DATA-MODEL §16)
+// ---------------------------------------------------------------------------
+
+model Currency {
+  id            String @id @default(uuid())
+  code          String @unique
+  name          String
+  symbol        String
+  decimalPlaces Int    @default(2)
+  status        String @default("ACTIVE")
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Identity & Authorization (DATA-MODEL §5)
+// ---------------------------------------------------------------------------
+
+model User {
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  displayName         String
+  phone               String?
+  employeeId          String?   @unique @map("employee_id")
+  passwordHash        String
+  status              String    @default("ACTIVE") // ACTIVE | DISABLED | LOCKED
+  mfaEnabled          Boolean   @default(false)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  createdById         String?
+  updatedById         String?
+
+  roles         UserRoleAssignment[]
+  refreshTokens RefreshToken[]
+  sessions      UserSession[]
+  preferences   NotificationPreference[]
+
+  @@index([status])
+}
+
+model Role {
+  id           String  @id @default(uuid())
+  name         String
+  code         String  @unique
+  description  String?
+  isSystemRole Boolean @default(false) @map("is_system_role")
+  status       String  @default("ACTIVE")
+
+  permissions RolePermission[]
+  users       UserRoleAssignment[]
+}
+
+model Permission {
+  id       String @id @default(uuid())
+  module   String
+  resource String
+  action   String
+
+  roles RolePermission[]
+
+  @@unique([module, resource, action])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRoleAssignment {
+  id           String    @id @default(uuid())
+  userId       String
+  roleId       String
+  companyId    String?
+  branchId     String?
+  departmentId String?
+  warehouseId  String?
+  validFrom    DateTime  @default(now())
+  validTo      DateTime?
+  createdAt    DateTime  @default(now())
+  createdById  String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([roleId])
+}
+
+model UserSession {
+  id             String    @id @default(uuid())
+  userId         String
+  refreshTokenId String?
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  revokedAt      DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String
+  tokenHash    String    @unique
+  family       String
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, family])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Financial Periods & Chart of Accounts (foundation seed needs these)
+// (DATA-MODEL §12, §13)
+// ---------------------------------------------------------------------------
+
+model FinancialPeriod {
+  id         String    @id @default(uuid())
+  companyId  String
+  fiscalYear Int
+  periodNo   Int
+  startDate  DateTime  @map("start_date")
+  endDate    DateTime  @map("end_date")
+  status     String    @default("OPEN") // OPEN | CLOSING | CLOSED
+  closedById String?
+  closedAt   DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, fiscalYear, periodNo])
+  @@index([companyId, status])
+}
+
+model Account {
+  id               String   @id @default(uuid())
+  companyId        String
+  parentId         String?
+  accountCode      String
+  accountName      String
+  accountType      String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  normalBalance    String // DEBIT | CREDIT
+  currencyId       String?
+  isControlAccount Boolean  @default(false) @map("is_control_account")
+  isPostable       Boolean  @default(true) @map("is_postable")
+  status           String   @default("ACTIVE")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  parent   Account?  @relation("AccountTree", fields: [parentId], references: [id])
+  children Account[] @relation("AccountTree")
+
+  @@unique([companyId, accountCode])
+  @@index([companyId, accountType])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Numbering (DATA-MODEL §3, ARCHITECTURE §41)
+// ---------------------------------------------------------------------------
+
+model DocumentSequence {
+  id           String @id @default(uuid())
+  companyId    String
+  documentType String
+  fiscalYear   Int
+  prefix       String
+  nextNumber   BigInt @default(1)
+
+  @@unique([companyId, documentType, fiscalYear])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Workflow & Approvals (DATA-MODEL §17)
+// ---------------------------------------------------------------------------
+
+model WorkflowDefinition {
+  id         String  @id @default(uuid())
+  companyId  String?
+  name       String
+  entityType String
+  version    Int     @default(1)
+  status     String  @default("ACTIVE")
+
+  states      WorkflowState[]
+  transitions WorkflowTransition[]
+  instances   WorkflowInstance[]
+
+  @@unique([companyId, entityType, version])
+}
+
+model WorkflowState {
+  id           String  @id @default(uuid())
+  definitionId String
+  code         String
+  name         String
+  isInitial    Boolean @default(false) @map("is_initial")
+  isTerminal   Boolean @default(false) @map("is_terminal")
+
+  definition      WorkflowDefinition   @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  transitionsFrom WorkflowTransition[] @relation("TransitionFrom")
+  transitionsTo   WorkflowTransition[] @relation("TransitionTo")
+
+  @@unique([definitionId, code])
+}
+
+model WorkflowTransition {
+  id           String @id @default(uuid())
+  definitionId String
+  fromStateId  String
+  toStateId    String
+  action       String
+  condition    Json?
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  fromState  WorkflowState      @relation("TransitionFrom", fields: [fromStateId], references: [id], onDelete: Restrict)
+  toState    WorkflowState      @relation("TransitionTo", fields: [toStateId], references: [id], onDelete: Restrict)
+
+  @@unique([definitionId, fromStateId, action])
+}
+
+model WorkflowInstance {
+  id           String    @id @default(uuid())
+  definitionId String
+  entityType   String
+  entityId     String
+  currentState String
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+  tasks      ApprovalTask[]
+
+  @@unique([entityType, entityId, definitionId])
+  @@index([entityType, entityId])
+  @@index([currentState])
+}
+
+model ApprovalTask {
+  id              String    @id @default(uuid())
+  instanceId      String
+  step            Int       @default(1)
+  approverType    String // USER | ROLE
+  approverId      String
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED | CHANGES_REQUESTED | CANCELLED
+  dueAt           DateTime?
+  actedAt         DateTime?
+  actedBy         String?
+  comments        String?
+  rejectionReason String?
+  delegatedFrom   String?
+  createdAt       DateTime  @default(now())
+
+  instance WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([approverType, approverId, status])
+  @@index([status, dueAt])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Documents (DATA-MODEL §18)
+// ---------------------------------------------------------------------------
+
+model Document {
+  id           String   @id @default(uuid())
+  companyId    String
+  branchId     String?
+  documentType String?
+  title        String
+  description  String?
+  storageKey   String
+  filename     String
+  mimeType     String
+  sizeBytes    BigInt
+  contentHash  String?
+  version      Int      @default(1)
+  accessPolicy String   @default("COMPANY") // COMPANY | BRANCH | PRIVATE
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  links    DocumentLink[]
+  versions DocumentVersion[]
+
+  @@index([companyId, documentType])
+  @@index([createdById])
+}
+
+model DocumentLink {
+  id               String @id @default(uuid())
+  documentId       String
+  entityType       String
+  entityId         String
+  relationshipType String @default("ATTACHMENT")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, entityType, entityId, relationshipType])
+  @@index([entityType, entityId])
+}
+
+model DocumentVersion {
+  id           String   @id @default(uuid())
+  documentId   String
+  versionNo    Int
+  storageKey   String
+  contentHash  String?
+  sizeBytes    BigInt
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+  changeReason String?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNo])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Notifications (DATA-MODEL §20)
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id           String    @id @default(uuid())
+  userId       String
+  companyId    String?
+  type         String
+  title        String
+  message      String
+  resourceType String?
+  resourceId   String?
+  channel      String    @default("IN_APP")
+  status       String    @default("UNREAD") // UNREAD | READ | FAILED
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  deliveries NotificationDelivery[]
+
+  @@index([userId, status])
+  @@index([companyId, type])
+}
+
+model NotificationDelivery {
+  id                String    @id @default(uuid())
+  notificationId    String
+  provider          String
+  attempt           Int       @default(1)
+  status            String    @default("PENDING") // PENDING | SENT | FAILED
+  providerReference String?
+  errorCode         String?
+  sentAt            DateTime?
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+}
+
+model NotificationPreference {
+  id        String  @id @default(uuid())
+  userId    String
+  eventType String
+  channel   String
+  enabled   Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventType, channel])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Events / Outbox (DATA-MODEL §21)
+// ---------------------------------------------------------------------------
+
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  eventType     String
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  occurredAt    DateTime  @default(now())
+  publishedAt   DateTime?
+  attempts      Int       @default(0)
+  status        String    @default("PENDING") // PENDING | PUBLISHED | FAILED
+  lastError     String?
+
+  @@index([status, occurredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Audit (DATA-MODEL §19) — append-only
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  companyId    String?
+  branchId     String?
+  actorUserId  String?
+  action       String
+  resourceType String
+  resourceId   String?
+  requestId    String?
+  timestamp    DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+  beforeData   Json?
+  afterData    Json?
+  metadata     Json?
+
+  @@index([companyId, timestamp])
+  @@index([actorUserId, timestamp])
+  @@index([resourceType, resourceId])
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Search (DATA-MODEL §23)
+// ---------------------------------------------------------------------------
+
+model SearchDocument {
+  id         String   @id @default(uuid())
+  companyId  String
+  branchId   String?
+  entityType String
+  entityId   String
+  title      String
+  subtitle   String?
+  searchText String
+  metadata   Json?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, entityType, entityId])
+  @@index([companyId, entityType])
+}
+
+// ---------------------------------------------------------------------------
+// Health probe tracking for readiness (ARCHITECTURE §56)
+// ---------------------------------------------------------------------------
+
+model SystemHealthEvent {
+  id        String   @id @default(uuid())
+  component String // postgres | redis | object-storage | worker
+  status    String // UP | DOWN
+  detail    String?
+  checkedAt DateTime @default(now())
+
+  @@index([component, checkedAt])
+}

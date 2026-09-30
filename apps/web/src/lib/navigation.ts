@@ -1,0 +1,92 @@
+export interface NavItem {
+  label: string;
+  href?: string;
+  permission?: string;
+  children?: NavItem[];
+}
+
+/**
+ * Primary navigation map (UI-UX.md §45). Items render only when the principal
+ * holds the mapped permission; the server remains the enforcement boundary.
+ * Stage-1 implements Administration, Documents, Dashboard and My Work; the
+ * remaining groups activate with their vertical slices.
+ */
+export const NAVIGATION: NavItem[] = [
+  { label: 'Dashboard', href: '/' },
+  {
+    label: 'My Work',
+    children: [
+      { label: 'Approvals', href: '/approvals', permission: 'workflow.approval_task.view' },
+      {
+        label: 'Notifications',
+        href: '/notifications',
+        permission: 'communication.notification.view',
+      },
+    ],
+  },
+  {
+    label: 'HR',
+    permission: 'hr.employee.view',
+    children: [{ label: 'Employees', href: '/hr/employees', permission: 'hr.employee.view' }],
+  },
+  {
+    label: 'Payroll',
+    permission: 'payroll.payroll_run.view',
+    children: [
+      { label: 'Payroll Runs', href: '/payroll/runs', permission: 'payroll.payroll_run.view' },
+    ],
+  },
+  {
+    label: 'Procurement',
+    permission: 'procurement.purchase_order.view',
+    children: [
+      {
+        label: 'Suppliers',
+        href: '/procurement/suppliers',
+        permission: 'procurement.supplier.view',
+      },
+      {
+        label: 'Purchase Orders',
+        href: '/procurement/purchase-orders',
+        permission: 'procurement.purchase_order.view',
+      },
+    ],
+  },
+  {
+    label: 'Inventory',
+    permission: 'inventory.product.view',
+    children: [
+      { label: 'Products', href: '/inventory/products', permission: 'inventory.product.view' },
+    ],
+  },
+  {
+    label: 'Sales',
+    permission: 'sales.customer.view',
+    children: [{ label: 'Customers', href: '/sales/customers', permission: 'sales.customer.view' }],
+  },
+  {
+    label: 'Accounting',
+    permission: 'accounting.journal.view',
+    children: [
+      { label: 'Journals', href: '/accounting/journals', permission: 'accounting.journal.view' },
+    ],
+  },
+  { label: 'Documents', href: '/documents', permission: 'documents.document.view' },
+  {
+    label: 'Administration',
+    permission: 'identity.user.view',
+    children: [
+      { label: 'Users', href: '/admin/users', permission: 'identity.user.view' },
+      { label: 'Roles', href: '/admin/roles', permission: 'identity.role.view' },
+      { label: 'Companies', href: '/admin/companies', permission: 'organization.company.view' },
+      { label: 'Branches', href: '/admin/branches', permission: 'organization.branch.view' },
+      {
+        label: 'Departments',
+        href: '/admin/departments',
+        permission: 'organization.department.view',
+      },
+      { label: 'Warehouses', href: '/admin/warehouses', permission: 'organization.warehouse.view' },
+      { label: 'Audit Trail', href: '/admin/audit', permission: 'audit.audit_log.view' },
+    ],
+  },
+];
