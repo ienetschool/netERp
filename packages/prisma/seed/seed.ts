@@ -14,7 +14,7 @@ const MODULES_RESOURCES: Record<string, string[]> = {
   identity: ['user', 'role', 'session'],
   organization: ['company', 'branch', 'department', 'cost_center', 'warehouse'],
   hr: ['employee', 'attendance', 'leave', 'holiday'],
-  payroll: ['payroll_run'],
+  payroll: ['pay_group', 'salary_structure', 'payroll_run'],
   procurement: [
     'supplier',
     'purchase_request',
@@ -397,6 +397,31 @@ async function ensureUsers(
       },
     });
   }
+
+  // Payroll approver for the demo (USER-FLOWS §27: finance review).
+  const finance = await prisma.user.upsert({
+    where: { email: 'finance@demo.local' },
+    update: {},
+    create: {
+      email: 'finance@demo.local',
+      displayName: 'Finance Manager',
+      passwordHash,
+    },
+  });
+  const financeManagerRoleId = roleIds.get('FINANCE_MANAGER');
+  if (!financeManagerRoleId) throw new Error('FINANCE_MANAGER role missing after seed');
+  const finAssignment = await prisma.userRoleAssignment.findFirst({
+    where: { userId: finance.id, roleId: financeManagerRoleId },
+  });
+  if (!finAssignment) {
+    await prisma.userRoleAssignment.create({
+      data: {
+        userId: finance.id,
+        roleId: financeManagerRoleId,
+        companyId: org.companyId,
+      },
+    });
+  }
 }
 
 /**
@@ -672,6 +697,186 @@ async function ensureHrData(
   }
 }
 
+/**
+ * Payroll demo data (PRD Stage 4): a monthly pay group, a salary structure
+ * with percentage/flat components, effective-dated assignments for the demo
+ * employees, and a payroll_run workflow routed to FINANCE_MANAGER.
+ */
+async function ensurePayrollData(
+  roleIds: Map<string, string>,
+  org: { companyId: string; branchId: string },
+): Promise<void> {
+  const currency = await prisma.currency.findUnique({ where: { code: 'USD' } });
+  if (!currency) throw new Error('USD currency missing after seed');
+
+  const payGroup = await prisma.payGroup.upsert({
+    where: { companyId_name: { companyId: org.companyId, name: 'Monthly Staff' } },
+    update: {},
+    create: {
+      companyId: org.companyId,
+      name: 'Monthly Staff',
+      frequency: 'MONTHLY',
+      currencyId: currency.id,
+      payDayRule: 'LAST_DAY_OF_MONTH',
+    },
+  });
+
+  const structure = await prisma.salaryStructure.upsert({
+    where: { companyId_name: { companyId: org.companyId, name: 'Standard Staff' } },
+    update: {},
+    create: {
+      companyId: org.companyId,
+      name: 'Standard Staff',
+      currencyId: currency.id,
+      components: {
+        create: [
+          {
+            code: 'BASIC',
+            name: 'Basic Salary',
+            type: 'EARNING',
+            calculationMethod: 'PERCENT_OF_BASE',
+            percentage: '100',
+            taxable: true,
+          },
+          {
+            code: 'HOUSING',
+            name: 'Housing Allowance',
+            type: 'EARNING',
+            calculationMethod: 'PERCENT_OF_BASE',
+            percentage: '25',
+            taxable: true,
+          },
+          {
+            code: 'TRANSPORT',
+            name: 'Transport Allowance',
+            type: 'EARNING',
+            calculationMethod: 'FLAT',
+            value: '150',
+            taxable: true,
+          },
+          {
+            code: 'PENSION_EE',
+            name: 'Pension (Employee)',
+            type: 'DEDUCTION',
+            calculationMethod: 'PERCENT_OF_BASE',
+            percentage: '5',
+            taxable: false,
+          },
+          {
+            code: 'PENSION_ER',
+            name: 'Pension (Employer)',
+            type: 'EMPLOYER_CONTRIBUTION',
+            calculationMethod: 'PERCENT_OF_BASE',
+            percentage: '10',
+            taxable: false,
+          },
+        ],
+      },
+    },
+  });
+
+  const year = new Date().getUTCFullYear();
+  const employees = await prisma.employee.findMany({
+    where: { companyId: org.companyId, employmentStatus: 'ACTIVE' },
+    orderBy: [{ employeeNo: 'asc' }],
+  });
+  const baseSalaries = ['4500.00', '3800.00', '3200.00'];
+  for (const [index, employee] of employees.entries()) {
+    await prisma.employee.update({
+      where: { id: employee.id },
+      data: { payGroupId: payGroup.id },
+    });
+    const existingAssignment = await prisma.employeeSalaryAssignment.findFirst({
+      where: { employeeId: employee.id, status: 'ACTIVE', effectiveTo: null },
+    });
+    if (existingAssignment) continue;
+    await prisma.employeeSalaryAssignment.create({
+      data: {
+        employeeId: employee.id,
+        salaryStructureId: structure.id,
+        effectiveFrom: new Date(`${year - 1}-01-01T00:00:00Z`),
+        baseSalary: baseSalaries[index % baseSalaries.length] as string,
+        currencyId: currency.id,
+      },
+    });
+  }
+
+  // payroll_run workflow: PENDING_APPROVAL goes to the FINANCE_MANAGER role.
+  const existingPayrollWorkflow = await prisma.workflowDefinition.findFirst({
+    where: { companyId: org.companyId, entityType: 'payroll_run', version: 1 },
+  });
+  if (!existingPayrollWorkflow) {
+    const approverRoleId = roleIds.get('FINANCE_MANAGER');
+    if (!approverRoleId) throw new Error('FINANCE_MANAGER role missing after seed');
+    const definition = await prisma.workflowDefinition.create({
+      data: {
+        companyId: org.companyId,
+        name: 'Payroll run approval',
+        entityType: 'payroll_run',
+        version: 1,
+        status: 'ACTIVE',
+      },
+    });
+    await prisma.workflowState.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          code: 'DRAFT',
+          name: 'Draft',
+          isInitial: true,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'PENDING_APPROVAL',
+          name: 'Pending Approval',
+          isInitial: false,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'APPROVED',
+          name: 'Approved',
+          isInitial: false,
+          isTerminal: true,
+        },
+        {
+          definitionId: definition.id,
+          code: 'REJECTED',
+          name: 'Rejected',
+          isInitial: false,
+          isTerminal: true,
+        },
+      ],
+    });
+    const states = await prisma.workflowState.findMany({ where: { definitionId: definition.id } });
+    const byCode = new Map(states.map((s) => [s.code, s.id]));
+    await prisma.workflowTransition.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('DRAFT') as string,
+          toStateId: byCode.get('PENDING_APPROVAL') as string,
+          action: 'submit',
+          condition: { approverType: 'ROLE', approverId: approverRoleId },
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('APPROVED') as string,
+          action: 'approve',
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('REJECTED') as string,
+          action: 'reject',
+        },
+      ],
+    });
+  }
+}
+
 async function main(): Promise<void> {
   console.log('Seeding foundation data...');
   const permissions = await ensurePermissions();
@@ -686,8 +891,13 @@ async function main(): Promise<void> {
     branchId: org.branchId,
     departmentId: org.departmentId,
   });
-  console.log('Seed complete. Users: admin@demo.local / manager@demo.local (password: Admin123!)');
-  console.log('Demo workflows: purchase_request and leave_request routed to BRANCH_MANAGER.');
+  await ensurePayrollData(roles, { companyId: org.companyId, branchId: org.branchId });
+  console.log(
+    'Seed complete. Users: admin@demo.local / manager@demo.local / finance@demo.local (password: Admin123!)',
+  );
+  console.log(
+    'Demo workflows: purchase_request and leave_request to BRANCH_MANAGER; payroll_run to FINANCE_MANAGER.',
+  );
 }
 
 main()

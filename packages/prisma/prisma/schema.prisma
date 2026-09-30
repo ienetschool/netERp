@@ -168,6 +168,11 @@ model Currency {
   symbol        String
   decimalPlaces Int    @default(2)
   status        String @default("ACTIVE")
+
+  payGroups        PayGroup[]
+  salaryStructures SalaryStructure[]
+  salaryAssignments EmployeeSalaryAssignment[]
+  payrollRuns      PayrollRun[]
 }
 
 // ---------------------------------------------------------------------------
@@ -598,11 +603,14 @@ model Employee {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  manager        Employee?      @relation("EmployeeManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
-  directReports  Employee[]     @relation("EmployeeManager")
-  user           User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  attendance     Attendance[]
-  leaveRequests  LeaveRequest[]
+  manager              Employee?                   @relation("EmployeeManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
+  directReports        Employee[]                  @relation("EmployeeManager")
+  user                 User?                       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attendance           Attendance[]
+  leaveRequests        LeaveRequest[]
+  payGroup             PayGroup?                   @relation(fields: [payGroupId], references: [id])
+  salaryAssignments    EmployeeSalaryAssignment[]
+  payrollEntries       PayrollEntry[]
 
   @@unique([companyId, employeeNo])
   @@index([companyId, employmentStatus])
@@ -691,8 +699,158 @@ model Holiday {
 }
 
 // ---------------------------------------------------------------------------
-// Platform — Audit (DATA-MODEL §19) — append-only
+// Payroll — DATA-MODEL §8 (PRD Stage 4)
 // ---------------------------------------------------------------------------
+
+model PayGroup {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String
+  frequency   String // MONTHLY | SEMI_MONTHLY | BI_WEEKLY | WEEKLY
+  currencyId  String
+  payDayRule  String   @default("LAST_DAY_OF_MONTH") // LAST_DAY_OF_MONTH | FIXED_DAY | NEAREST_WORKING_DAY
+  payDayValue Int?
+  status      String   @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  currency    Currency     @relation(fields: [currencyId], references: [id])
+  employees   Employee[]
+  payrollRuns PayrollRun[]
+
+  @@unique([companyId, name])
+  @@index([companyId, status])
+}
+
+model SalaryStructure {
+  id         String   @id @default(uuid())
+  companyId  String
+  name       String
+  currencyId String
+  status     String   @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  currency    Currency                   @relation(fields: [currencyId], references: [id])
+  components  SalaryComponent[]
+  assignments EmployeeSalaryAssignment[]
+
+  @@unique([companyId, name])
+  @@index([companyId, status])
+}
+
+model SalaryComponent {
+  id                String   @id @default(uuid())
+  salaryStructureId String
+  code              String
+  name              String
+  type              String // EARNING | DEDUCTION | EMPLOYER_CONTRIBUTION
+  calculationMethod String // FLAT | PERCENT_OF_BASE
+  value             Decimal? @db.Decimal(18, 4) // FLAT amount
+  percentage        Decimal? @db.Decimal(9, 4) // percent of base salary
+  accountId         String?
+  taxable           Boolean  @default(true)
+  status            String   @default("ACTIVE")
+
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+  payrollLines    PayrollLine[]
+
+  @@unique([salaryStructureId, code])
+  @@index([salaryStructureId, type])
+}
+
+model EmployeeSalaryAssignment {
+  id                String    @id @default(uuid())
+  employeeId        String
+  salaryStructureId String
+  effectiveFrom     DateTime  @db.Date
+  effectiveTo       DateTime? @db.Date
+  baseSalary        Decimal   @db.Decimal(18, 2)
+  currencyId        String
+  status            String    @default("ACTIVE") // ACTIVE | SUPERSEDED
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  employee        Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Restrict)
+  currency        Currency        @relation(fields: [currencyId], references: [id])
+
+  @@index([employeeId, effectiveFrom])
+  @@index([salaryStructureId])
+}
+
+model PayrollRun {
+  id                 String    @id @default(uuid())
+  companyId          String
+  branchId           String?
+  payGroupId         String
+  periodStart        DateTime  @db.Date
+  periodEnd          DateTime  @db.Date
+  paymentDate        DateTime  @db.Date
+  currencyId         String
+  status             String    @default("DRAFT") // DRAFT | CALCULATING | CALCULATED | PENDING_APPROVAL | APPROVED | POSTED | PAID | CANCELLED
+  employeeCount      Int       @default(0)
+  totalGross         Decimal   @default(0) @db.Decimal(18, 2)
+  totalDeductions    Decimal   @default(0) @db.Decimal(18, 2)
+  totalNet           Decimal   @default(0) @db.Decimal(18, 2)
+  totalEmployerCost  Decimal   @default(0) @db.Decimal(18, 2)
+  /** Employees skipped during calculation, with reasons (UI-UX §24 Exceptions tab). */
+  exceptions         Json?
+  workflowInstanceId String?   @unique
+  approvedBy         String?
+  approvedAt         DateTime?
+  postedBy           String?
+  postedAt           DateTime?
+  createdById        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  payGroup PayGroup       @relation(fields: [payGroupId], references: [id], onDelete: Restrict)
+  currency Currency       @relation(fields: [currencyId], references: [id])
+  entries  PayrollEntry[]
+
+  @@index([companyId, status])
+  @@index([payGroupId, periodStart, periodEnd])
+}
+
+model PayrollEntry {
+  id              String   @id @default(uuid())
+  payrollRunId    String
+  employeeId      String
+  grossAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  deductionAmount Decimal  @default(0) @db.Decimal(18, 2)
+  netAmount       Decimal  @default(0) @db.Decimal(18, 2)
+  employerCost    Decimal  @default(0) @db.Decimal(18, 2)
+  status          String   @default("CALCULATED") // CALCULATED | APPROVED | POSTED
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  payrollRun PayrollRun    @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  lines      PayrollLine[]
+
+  @@unique([payrollRunId, employeeId])
+  @@index([employeeId])
+}
+
+model PayrollLine {
+  id                String   @id @default(uuid())
+  payrollEntryId    String
+  salaryComponentId String
+  description       String
+  quantity          Decimal  @default(1) @db.Decimal(18, 4)
+  rate              Decimal  @default(0) @db.Decimal(18, 4)
+  amount            Decimal  @default(0) @db.Decimal(18, 2)
+  taxable           Boolean  @default(true)
+  accountId         String?
+  createdAt         DateTime @default(now())
+
+  payrollEntry    PayrollEntry    @relation(fields: [payrollEntryId], references: [id], onDelete: Cascade)
+  salaryComponent SalaryComponent @relation(fields: [salaryComponentId], references: [id], onDelete: Restrict)
+
+  @@index([payrollEntryId])
+  @@index([salaryComponentId])
+}
 
 model AuditLog {
   id           String   @id @default(uuid())

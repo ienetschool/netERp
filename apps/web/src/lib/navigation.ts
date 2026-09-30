@@ -36,6 +36,12 @@ export const NAVIGATION: NavItem[] = [
     label: 'Payroll',
     permission: 'payroll.payroll_run.view',
     children: [
+      { label: 'Pay Groups', href: '/payroll/pay-groups', permission: 'payroll.pay_group.view' },
+      {
+        label: 'Salary Structures',
+        href: '/payroll/salary-structures',
+        permission: 'payroll.salary_structure.view',
+      },
       { label: 'Payroll Runs', href: '/payroll/runs', permission: 'payroll.payroll_run.view' },
     ],
   },

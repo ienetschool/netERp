@@ -6,6 +6,7 @@ import { PrismaService } from '@erp/prisma';
 import { AuditService } from '../common/audit.service.js';
 import { OutboxService } from '../platform/outbox.service.js';
 import { HrService } from '../hr/hr.service.js';
+import { PayrollService } from '../payroll/payroll.service.js';
 import { ValidationError, NotFoundError } from '../common/errors.js';
 import { getRequestId } from '../common/api-envelope.interceptor.js';
 import {
@@ -38,6 +39,7 @@ export class WorkflowController {
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
     private readonly hr: HrService,
+    private readonly payroll: PayrollService,
   ) {}
 
   // ---- Definitions ---------------------------------------------------------
@@ -202,6 +204,12 @@ export class WorkflowController {
     // workflow.approval.acted outbox event in the worker.
     if (result.entityType === 'leave_request') {
       await this.hr.applyWorkflowOutcome(
+        result.instanceId,
+        result.instanceStatus,
+        principal.userId,
+      );
+    } else if (result.entityType === 'payroll_run') {
+      await this.payroll.applyWorkflowOutcome(
         result.instanceId,
         result.instanceStatus,
         principal.userId,

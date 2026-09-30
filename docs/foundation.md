@@ -78,10 +78,59 @@ Per the PRD stage plan (Stage 3 = employees, attendance, leave, holidays, calend
 - Seed: 3 demo employees, AL/SL/UPL leave types, 2 holidays, a `leave_request`
   workflow routed to BRANCH_MANAGER, and one PENDING_APPROVAL leave request ready
   in the manager inbox.
+- **Workflow→entity bridge**: acting on an approval task applies the outcome to
+  the owning entity (`WorkflowController.act` dispatches on the instance's
+  `entityType`; COMPLETED→APPROVED, REJECTED/CANCELLED pass through,
+  IN_PROGRESS intermediate approvals keep the entity pending).
+
+## Stage 4 — Payroll (implemented)
+
+Per the PRD stage plan (Stage 4 = pay groups, salary structures, payroll engine,
+payslips, accounting integration):
+
+- **Configuration** (`PayGroup`, `SalaryStructure`, `SalaryComponent`,
+  `/payroll/pay-groups`, `/payroll/salary-structures`): pay frequency + currency
+  + pay-day rule per company; component types EARNING / DEDUCTION /
+  EMPLOYER_CONTRIBUTION with FLAT or PERCENT_OF_BASE calculation. No statutory
+  tax engine is invented (CLAUDE.md §43) — tax lines are ordinary components.
+- **Salary assignments** (`EmployeeSalaryAssignment`): effective-dated; assigning
+  closes the previous ACTIVE record (SUPERSEDED) rather than overwriting history
+  (CLAUDE.md §44). One ACTIVE open-ended assignment per employee.
+- **Payroll engine** (`PayrollRun`/`PayrollEntry`/`PayrollLine`,
+  `/payroll/runs`): calculate a period for a pay group — eligible employees
+  (ACTIVE + assigned to the pay group + an effective assignment covering the
+  period and matching the run currency), one entry per employee with one line
+  per component. All arithmetic goes through `Money` (decimal strings; the
+  percentage factor is produced by exact decimal-point shifting, unit-tested);
+  every line is rounded HALF_UP at 2 dp and entries are asserted to reconcile
+  to their lines before persisting. Employees that cannot be calculated are
+  stored on the run as `exceptions` (UI-UX §24 Exceptions tab).
+- **Approval**: submitting a CALCULATED run starts a `payroll_run` workflow and
+  routes to the FINANCE_MANAGER role (USER-FLOWS §27); the workflow→entity
+  bridge applies COMPLETED→APPROVED, REJECTED→back to CALCULATED (for
+  correction and resubmission), CANCELLED→CANCELLED. Direct permission-gated
+  approval is available when no workflow definition exists.
+- **Accounting integration**: posting an APPROVED run validates an open
+  financial period covering the payment date and emits a **balanced journal
+  payload** on the outbox (`payroll.run.posted`): Dr salaries expense (gross) +
+  employer cost, Cr net pay + deductions payable (default accounts 5100/2200,
+  component account overrides respected per line). Debits always equal credits
+  by construction (net = gross − deductions), satisfying USER-FLOWS §28.8.
+  The Journal model itself lands with the accounting vertical slice, which will
+  consume this event — until then no GL rows are written.
+- **Payslips**: run detail page lists per-employee entries with gross,
+  deductions, net and employer cost, plus expandable per-component payslip
+  lines.
+- Seed: "Monthly Staff" pay group, "Standard Staff" structure (BASIC 100%,
+  HOUSING 25%, TRANSPORT flat 150, PENSION_EE 5% deduction, PENSION_ER 10%
+  employer contribution), assignments for the demo employees, a `payroll_run`
+  workflow routed to FINANCE_MANAGER, and a `finance@demo.local` demo user.
 
 ## Deliberate deferrals (later stages)
 
-1. Accounting ledger beyond the chart-of-accounts seed (later PRD stage).
+1. Accounting ledger beyond the chart-of-accounts seed (later PRD stage) — the
+   payroll `payroll.run.posted` outbox event already carries the balanced
+   journal payload for that slice to persist.
 3. Procurement/Sales/Inventory modules (Stages 3–5).
 4. External notification adapters (email/sms/whatsapp) — stubs throw until SMTP/provider creds exist.
 5. Dedicated search engine; Redis caching layer in front of read endpoints.
