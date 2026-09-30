@@ -86,6 +86,7 @@ export const NAVIGATION: NavItem[] = [
         permission: 'organization.department.view',
       },
       { label: 'Warehouses', href: '/admin/warehouses', permission: 'organization.warehouse.view' },
+      { label: 'Settings', href: '/admin/settings', permission: 'settings.configuration.view' },
       { label: 'Audit Trail', href: '/admin/audit', permission: 'audit.audit_log.view' },
     ],
   },

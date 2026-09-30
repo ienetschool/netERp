@@ -19,6 +19,10 @@ import { SearchController } from './platform/search.controller.js';
 import { HealthController } from './platform/health.controller.js';
 import { DashboardController } from './platform/dashboard.controller.js';
 import { AuditController } from './platform/audit.controller.js';
+import { WorkflowController } from './workflow/workflow.controller.js';
+import { WorkflowEngineService } from './workflow/workflow-engine.service.js';
+import { SettingsController } from './settings/settings.controller.js';
+import { SettingsService } from './settings/settings.service.js';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
@@ -53,6 +57,8 @@ import { JwtModule } from '@nestjs/jwt';
     HealthController,
     DashboardController,
     AuditController,
+    WorkflowController,
+    SettingsController,
   ],
   providers: [
     AuthService,
@@ -61,6 +67,8 @@ import { JwtModule } from '@nestjs/jwt';
     StorageService,
     NotificationsService,
     OutboxService,
+    WorkflowEngineService,
+    SettingsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ApiEnvelopeInterceptor },

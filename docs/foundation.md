@@ -19,8 +19,28 @@ what is deliberately deferred, and open decisions.
 | Search | Scope-aware `SearchDocument` query endpoint (Postgres-backed; Meilisearch/Typesense deferred) |
 | Dashboard shell | Permission-aware navigation, role-aware KPIs, alerts panel, breadcrumbs, collapsible sidebar, mobile drawer, skeletons/empty states |
 | Health | Liveness + readiness (Postgres + Redis probes) |
-| Approvals UI | Honest empty state — workflow engine data model exists (WorkflowDefinition/State/Transition/Instance/ApprovalTask), engine execution is a later stage |
+| Approvals UI | Real approval inbox: approve / reject (reason required) / cancel, role- and user-based task assignment |
 | Seed | Idempotent: 17 permission modules × actions, 18 roles, demo org (DEMO / HQ / GEN / MAIN warehouses), financial period, 11 accounts, admin@demo.local + manager@demo.local (`Admin123!`) |
+
+## Stage 2 — Core Platform additions (implemented)
+
+Per the PRD stage plan (Stage 2 = workflow engine, event engine, notification engine,
+numbering, attachments, global search, settings, approval inbox) — the latter four
+shipped with Stage 1, so this slice completed the remainder:
+
+- **Workflow engine** (`apps/api/src/workflow/workflow-engine.service.ts`): versioned
+  definitions with company overrides, instance lifecycle, guarded transitions — a
+  transition whose `condition` JSON declares `{ approverType, approverId }` creates a
+  PENDING ApprovalTask and blocks further transitions until decided.
+- **Approval inbox** (`/workflow/approval-tasks`, web `/approvals`): user- and role-
+addressed tasks; approve advances through the state's `approve` transition (or
+  completes the instance), reject requires a reason and ends the instance, cancel
+  aborts it. All decisions audited and emitted on the outbox
+  (`workflow.instance.started`, `workflow.approval.acted`).
+- **Settings engine** (`SystemSetting`, `/settings`): typed key/value store
+  (string/number/boolean/json) with platform-level rows (companyId NULL) and
+  per-company override precedence; read for any authenticated principal, writes gated
+  by `settings.configuration.*` permissions; web admin page at `/admin/settings`.
 
 ## Money
 
@@ -30,14 +50,13 @@ carry money.
 
 ## Testing & gates
 
-- 32 unit tests passing (types, permissions, validation, api scope + numbering, web, worker).
+- 47 unit tests passing (types, permissions, validation, api scope + numbering + workflow, web, worker).
 - Playwright e2e configured (`apps/web/e2e/login.spec.ts`) but browsers not installed in this environment; run when a stack is up.
 - Gates: `typecheck`, `lint`, `test:unit`, `build` all green per workspace; CI (`.github/workflows/ci.yml`) replays migration + seed against a Postgres service.
 
 ## Deliberate deferrals (later stages)
 
-1. Workflow engine execution (approvals inbox is a placeholder with honest empty state).
-2. Accounting ledger beyond the chart-of-accounts seed (Stage 2 per PRD).
+1. Accounting ledger beyond the chart-of-accounts seed (later PRD stage).
 3. Procurement/Sales/Inventory modules (Stages 3–5).
 4. External notification adapters (email/sms/whatsapp) — stubs throw until SMTP/provider creds exist.
 5. Dedicated search engine; Redis caching layer in front of read endpoints.
