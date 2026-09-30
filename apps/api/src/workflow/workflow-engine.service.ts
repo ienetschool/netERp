@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@erp/prisma';
+import { Money } from '@erp/types';
 import { BusinessRuleError, NotFoundError } from '../common/errors.js';
 import type { Prisma } from '@erp/prisma';
 
@@ -15,6 +16,8 @@ export interface ExecuteTransitionInput {
   action: string;
   actorUserId: string;
   comments?: string | undefined;
+  /** Decimal-string entity amount, used for threshold-based approver routing. */
+  amount?: string | undefined;
 }
 
 export interface StartInstanceResult {
@@ -58,12 +61,44 @@ export interface CreateDefinitionInput {
 
 /**
  * Parses the approver declaration stored on a transition's `condition` JSON:
- * `{ approverType: 'USER' | 'ROLE', approverId }` (DATA-MODEL §17: approval
- * rules depend on user/role). Transitions without approver info are unguarded.
+ * `{ approverType, approverId }` plus optional `amountRules` bands
+ * (`{ minAmount?, maxAmount?, approverType, approverId }` — first match wins,
+ * `[min, max)` semantics, evaluated only when an entity amount is supplied)
+ * and `amountField` naming the entity amount field (DATA-MODEL §17: approval
+ * rules depend on user, role, amount). Transitions without approver info are
+ * unguarded.
  */
-export function parseApprover(condition: Prisma.JsonValue | null): ApproverSpec | null {
+export function parseApprover(
+  condition: Prisma.JsonValue | null,
+  amount?: string,
+): ApproverSpec | null {
   if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return null;
   const record = condition as Record<string, unknown>;
+
+  const rules: unknown = record.amountRules;
+  if (amount !== undefined && Array.isArray(rules)) {
+    const entityAmount = Money.fromDecimalString(amount);
+    for (const rule of rules) {
+      if (!rule || typeof rule !== 'object' || Array.isArray(rule)) continue;
+      const band = rule as Record<string, unknown>;
+      if (
+        (band.approverType !== 'USER' && band.approverType !== 'ROLE') ||
+        typeof band.approverId !== 'string'
+      ) {
+        continue;
+      }
+      if (band.minAmount !== undefined && typeof band.minAmount !== 'string') continue;
+      if (band.maxAmount !== undefined && typeof band.maxAmount !== 'string') continue;
+      const minOk =
+        band.minAmount === undefined || entityAmount.gte(Money.fromDecimalString(band.minAmount));
+      const maxOk =
+        band.maxAmount === undefined || !entityAmount.gte(Money.fromDecimalString(band.maxAmount));
+      if (minOk && maxOk) {
+        return { approverType: band.approverType, approverId: band.approverId };
+      }
+    }
+  }
+
   const { approverType, approverId } = record;
   if ((approverType !== 'USER' && approverType !== 'ROLE') || typeof approverId !== 'string') {
     return null;
@@ -193,10 +228,10 @@ export class WorkflowEngineService {
     if (!toState) throw new BusinessRuleError('Transition target state missing');
 
     if (tx) {
-      return this.transitionWithin(instance, transition, toState, tx);
+      return this.transitionWithin(instance, transition, toState, input.amount, tx);
     }
     return this.prisma.$transaction((txc) =>
-      this.transitionWithin(instance, transition, toState, txc),
+      this.transitionWithin(instance, transition, toState, input.amount, txc),
     );
   }
 
@@ -204,6 +239,7 @@ export class WorkflowEngineService {
     instance: { id: string },
     transition: { condition: Prisma.JsonValue | null },
     toState: { code: string; isTerminal: boolean },
+    amount: string | undefined,
     tx: Prisma.TransactionClient,
   ): Promise<{ currentState: string; approvalTasksCreated: number; completed: boolean }> {
     await tx.workflowInstance.update({
@@ -213,7 +249,7 @@ export class WorkflowEngineService {
         ...(toState.isTerminal ? { completedAt: new Date() } : {}),
       },
     });
-    const approver = parseApprover(transition.condition);
+    const approver = parseApprover(transition.condition, amount);
     const tasksCreated = await this.maybeCreateApprovalTask(
       tx,
       instance.id,
@@ -231,7 +267,12 @@ export class WorkflowEngineService {
     taskId: string,
     decision: 'APPROVE' | 'REJECT' | 'CANCEL',
     actorUserId: string,
-    options?: { comments?: string | undefined; rejectionReason?: string | undefined },
+    options?: {
+      comments?: string | undefined;
+      rejectionReason?: string | undefined;
+      /** Entity amount for threshold routing of the NEXT step's task. */
+      amount?: string | undefined;
+    },
   ): Promise<{ currentState: string | null; instanceStatus: InstanceStatus }> {
     const task = await this.prisma.approvalTask.findUnique({
       where: { id: taskId },
@@ -351,7 +392,7 @@ export class WorkflowEngineService {
     const toState = byId.get(approveTransition.toStateId);
     if (!toState) throw new BusinessRuleError('Transition target state missing');
 
-    const nextApprover = parseApprover(approveTransition.condition);
+    const nextApprover = parseApprover(approveTransition.condition, options?.amount);
     await this.prisma.$transaction(async (tx) => {
       await tx.approvalTask.update({
         where: { id: task.id },

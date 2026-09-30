@@ -16,7 +16,12 @@ engine must work for Stage 2 without premature generality.
    state's transitions.
 2. **Approvers are declared in `WorkflowTransition.condition` JSON** as
    `{ approverType: 'USER' | 'ROLE', approverId }` (DATA-MODEL §17: rules
-   depend on user/role). Transitions without an approver are unguarded.
+   depend on user/role), with **optional amount-threshold routing**: an
+   `amountRules` array of `{ minAmount?, maxAmount?, approverType, approverId }
+   bands (first match wins, `[min, max)` semantics, compared exactly via the
+   `Money` decimal type so binary-float rounding can never misroute) and an
+   optional flat fallback approver used when no band matches or no amount is
+   supplied. Transitions without any approver info are unguarded.
 3. **Arriving at a non-terminal state through an approver-declaring transition
    creates one PENDING ApprovalTask** for that user/role. While any PENDING task
    exists, `executeTransition` is rejected — decisions must arrive via
@@ -33,8 +38,10 @@ engine must work for Stage 2 without premature generality.
    coupling to the engine.
 
 ## Consequences
-- Amount/branch/department-based routing has a home: it extends the condition
-  JSON, evaluated at task-creation time — a later slice, no schema change.
+- Amount-threshold routing is implemented (bands + exact-decimal comparison,
+  the caller supplies the entity amount on transition/act calls); branch/
+  department-based routing extends the same condition JSON, evaluated at
+  task-creation time — no schema change.
 - Task creation is not yet a queue; notification fan-out happens via outbox
   consumers, so latency is bounded by relay polling.
 - Definition CRUD is permission-gated

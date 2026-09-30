@@ -15,6 +15,52 @@ describe('parseApprover', () => {
     ).toEqual({ approverType: 'USER', approverId: 'u-123' });
   });
 
+  describe('amount threshold routing', () => {
+    const bands = {
+      amountRules: [
+        { minAmount: '1000', approverType: 'ROLE', approverId: 'role-cfo' },
+        { minAmount: '100', maxAmount: '1000', approverType: 'ROLE', approverId: 'role-mgr' },
+        { maxAmount: '100', approverType: 'USER', approverId: 'user-lead' },
+      ],
+    };
+
+    it('routes to the CFO band at or above 1000 (min inclusive)', () => {
+      expect(parseApprover(bands, '1000')).toEqual({ approverType: 'ROLE', approverId: 'role-cfo' });
+      expect(parseApprover(bands, '2500.75')).toEqual({ approverType: 'ROLE', approverId: 'role-cfo' });
+    });
+
+    it('routes mid amounts to the manager band ([min, max) semantics)', () => {
+      expect(parseApprover(bands, '999.99')).toEqual({ approverType: 'ROLE', approverId: 'role-mgr' });
+      expect(parseApprover(bands, '1000.00')).toEqual({ approverType: 'ROLE', approverId: 'role-cfo' });
+    });
+
+    it('routes small amounts to the lead band (max exclusive)', () => {
+      expect(parseApprover(bands, '99.99')).toEqual({ approverType: 'USER', approverId: 'user-lead' });
+      expect(parseApprover(bands, '100')).toEqual({ approverType: 'ROLE', approverId: 'role-mgr' });
+    });
+
+    it('is exact-decimal: 0.1 + 0.2 style traps do not misroute', () => {
+      // 0.3 is in [0.1, 0.3): max bound is exclusive — binary float would fail this.
+      expect(parseApprover({ amountRules: [{ minAmount: '0.1', maxAmount: '0.3', approverType: 'USER', approverId: 'u1' }] }, '0.3')).toBeNull();
+      expect(parseApprover({ amountRules: [{ minAmount: '0.1', maxAmount: '0.3', approverType: 'USER', approverId: 'u1' }] }, '0.299999999999999999')).toEqual({ approverType: 'USER', approverId: 'u1' });
+    });
+
+    it('falls back to the flat approver when no band matches or amount is absent', () => {
+      const cond = { approverType: 'ROLE', approverId: 'role-fallback', amountRules: [{ minAmount: '5000', approverType: 'ROLE', approverId: 'role-cfo' }] };
+      expect(parseApprover(cond, '100')).toEqual({ approverType: 'ROLE', approverId: 'role-fallback' });
+      expect(parseApprover(cond)).toEqual({ approverType: 'ROLE', approverId: 'role-fallback' });
+    });
+
+    it('ignores malformed bands instead of throwing', () => {
+      expect(parseApprover({ amountRules: ['x', null, { approverType: 'ROLE', approverId: 'r1' }] }, '50')).toEqual({ approverType: 'ROLE', approverId: 'r1' });
+    });
+
+    it('returns null when amountRules exist but amount is required and absent', () => {
+      // No flat approver and no amount supplied: unguarded transition.
+      expect(parseApprover({ amountRules: [{ minAmount: '0', approverType: 'ROLE', approverId: 'r1' }] })).toBeNull();
+    });
+  });
+
   it('parses a valid ROLE approver condition', () => {
     expect(
       parseApprover({ approverType: 'ROLE', approverId: 'r-9' }),

@@ -151,6 +151,7 @@ export class WorkflowController {
       instanceId: id,
       action: parsed.data.action,
       actorUserId: principal.userId,
+      amount: parsed.data.amount,
     });
     await this.audit.record({
       actorUserId: principal.userId,
@@ -191,6 +192,7 @@ export class WorkflowController {
     const result = await this.engine.act(id, parsed.data.decision, principal.userId, {
       comments: parsed.data.comments,
       rejectionReason: parsed.data.rejectionReason,
+      amount: parsed.data.amount,
     });
     await this.audit.record({
       actorUserId: principal.userId,
