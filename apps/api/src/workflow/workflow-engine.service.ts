@@ -28,6 +28,15 @@ export interface StartInstanceResult {
 
 export type InstanceStatus = 'IN_PROGRESS' | 'COMPLETED' | 'REJECTED' | 'CANCELLED';
 
+export interface ActResult {
+  currentState: string | null;
+  instanceStatus: InstanceStatus;
+  /** Entity binding, so callers can apply domain outcomes (e.g. leave requests). */
+  instanceId: string;
+  entityType: string;
+  entityId: string;
+}
+
 export interface ApprovalTaskView {
   id: string;
   step: number;
@@ -273,7 +282,7 @@ export class WorkflowEngineService {
       /** Entity amount for threshold routing of the NEXT step's task. */
       amount?: string | undefined;
     },
-  ): Promise<{ currentState: string | null; instanceStatus: InstanceStatus }> {
+  ): Promise<ActResult> {
     const task = await this.prisma.approvalTask.findUnique({
       where: { id: taskId },
       include: { instance: true },
@@ -301,7 +310,13 @@ export class WorkflowEngineService {
           data: { completedAt: new Date() },
         });
       });
-      return { currentState: task.instance.currentState, instanceStatus: 'CANCELLED' };
+      return {
+        currentState: task.instance.currentState,
+        instanceStatus: 'CANCELLED',
+        instanceId: task.instance.id,
+        entityType: task.instance.entityType,
+        entityId: task.instance.entityId,
+      };
     }
 
     if (decision === 'REJECT') {
@@ -348,7 +363,13 @@ export class WorkflowEngineService {
           },
         });
       });
-      return { currentState: targetCode ?? task.instance.currentState, instanceStatus: 'REJECTED' };
+      return {
+        currentState: targetCode ?? task.instance.currentState,
+        instanceStatus: 'REJECTED',
+        instanceId: task.instance.id,
+        entityType: task.instance.entityType,
+        entityId: task.instance.entityId,
+      };
     }
 
     // APPROVE: mark the task satisfied, then follow the state's `approve`
@@ -386,7 +407,13 @@ export class WorkflowEngineService {
           data: { completedAt: new Date() },
         });
       });
-      return { currentState: task.instance.currentState, instanceStatus: 'COMPLETED' };
+      return {
+        currentState: task.instance.currentState,
+        instanceStatus: 'COMPLETED',
+        instanceId: task.instance.id,
+        entityType: task.instance.entityType,
+        entityId: task.instance.entityId,
+      };
     }
 
     const toState = byId.get(approveTransition.toStateId);
@@ -420,6 +447,9 @@ export class WorkflowEngineService {
     return {
       currentState: toState.code,
       instanceStatus: toState.isTerminal ? 'COMPLETED' : 'IN_PROGRESS',
+      instanceId: task.instance.id,
+      entityType: task.instance.entityType,
+      entityId: task.instance.entityId,
     };
   }
 

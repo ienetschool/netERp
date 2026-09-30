@@ -4,6 +4,7 @@ import { BusinessRuleError, NotFoundError } from '../common/errors.js';
 import { AuditService } from '../common/audit.service.js';
 import { OutboxService } from '../platform/outbox.service.js';
 import { WorkflowEngineService } from '../workflow/workflow-engine.service.js';
+import type { InstanceStatus } from '../workflow/workflow-engine.service.js';
 import type { Prisma } from '@erp/prisma';
 import type { RequestPrincipal } from '../common/request-context.js';
 import type {
@@ -391,9 +392,12 @@ export class HrService {
   /** Bridges workflow terminal states back onto the leave request. */
   async applyWorkflowOutcome(
     instanceId: string,
-    outcome: 'APPROVED' | 'REJECTED' | 'CANCELLED',
+    outcome: InstanceStatus,
     actorUserId: string,
   ): Promise<void> {
+    if (outcome === 'IN_PROGRESS') return; // intermediate approval; still pending
+    const mapped: 'APPROVED' | 'REJECTED' | 'CANCELLED' =
+      outcome === 'COMPLETED' ? 'APPROVED' : outcome;
     const request = await this.prisma.leaveRequest.findUnique({
       where: { workflowInstanceId: instanceId },
     });
@@ -403,8 +407,8 @@ export class HrService {
     await this.prisma.leaveRequest.update({
       where: { id: request.id },
       data: {
-        status: outcome,
-        ...(outcome === 'APPROVED'
+        status: mapped,
+        ...(mapped === 'APPROVED'
           ? { approvedAt: new Date(), approvedBy: actorUserId }
           : { rejectedAt: new Date(), rejectedBy: actorUserId }),
       },

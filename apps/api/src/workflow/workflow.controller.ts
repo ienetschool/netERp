@@ -5,6 +5,7 @@ import { WorkflowEngineService } from './workflow-engine.service.js';
 import { PrismaService } from '@erp/prisma';
 import { AuditService } from '../common/audit.service.js';
 import { OutboxService } from '../platform/outbox.service.js';
+import { HrService } from '../hr/hr.service.js';
 import { ValidationError, NotFoundError } from '../common/errors.js';
 import { getRequestId } from '../common/api-envelope.interceptor.js';
 import {
@@ -36,6 +37,7 @@ export class WorkflowController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    private readonly hr: HrService,
   ) {}
 
   // ---- Definitions ---------------------------------------------------------
@@ -194,6 +196,17 @@ export class WorkflowController {
       rejectionReason: parsed.data.rejectionReason,
       amount: parsed.data.amount,
     });
+    // Bridge the decision back onto the owning entity (DATA-MODEL §17:
+    // workflow outcomes drive domain status). Domain-specific updates stay in
+    // the owning module; new entity types add a case here or subscribe to the
+    // workflow.approval.acted outbox event in the worker.
+    if (result.entityType === 'leave_request') {
+      await this.hr.applyWorkflowOutcome(
+        result.instanceId,
+        result.instanceStatus,
+        principal.userId,
+      );
+    }
     await this.audit.record({
       actorUserId: principal.userId,
       action: 'workflow.approval_acted',
@@ -208,6 +221,8 @@ export class WorkflowController {
         aggregateType: 'approval_task',
         aggregateId: id,
         payload: {
+          entityType: result.entityType,
+          entityId: result.entityId,
           decision: parsed.data.decision,
           instanceStatus: result.instanceStatus,
           currentState: result.currentState,
