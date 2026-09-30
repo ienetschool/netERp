@@ -195,6 +195,7 @@ model User {
   refreshTokens RefreshToken[]
   sessions      UserSession[]
   preferences   NotificationPreference[]
+  employee      Employee?
 
   @@index([status])
 }
@@ -557,6 +558,136 @@ model OutboxEvent {
   lastError     String?
 
   @@index([status, occurredAt])
+}
+
+// ---------------------------------------------------------------------------
+// HR — Employees, Attendance, Leave, Holidays (DATA-MODEL §6, §7)
+// ---------------------------------------------------------------------------
+
+model Employee {
+  id                String    @id @default(uuid())
+  companyId         String
+  branchId          String?
+  departmentId      String?
+  employeeNo        String
+  userId            String?   @unique
+  firstName         String
+  middleName        String?
+  lastName          String
+  displayName       String
+  gender            String?
+  dateOfBirth       DateTime? @db.Date
+  nationality       String?
+  nationalId        String?
+  email             String?
+  phone             String?
+  address           String?
+  hireDate          DateTime  @db.Date
+  terminationDate   DateTime? @db.Date
+  employmentStatus  String    @default("DRAFT") // DRAFT | ACTIVE | ON_LEAVE | SUSPENDED | TERMINATED | RETIRED
+  employmentType    String? // FULL_TIME | PART_TIME | CONTRACT | INTERN
+  jobTitle          String?
+  managerEmployeeId String?
+  costCenterId      String?
+  // Pay Group linkage arrives with the payroll stage (DATA-MODEL §8).
+  payGroupId            String?
+  bankAccountReference  String?
+  taxIdentifier         String?
+  emergencyContact      Json?
+  status            String    @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  manager        Employee?      @relation("EmployeeManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
+  directReports  Employee[]     @relation("EmployeeManager")
+  user           User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attendance     Attendance[]
+  leaveRequests  LeaveRequest[]
+
+  @@unique([companyId, employeeNo])
+  @@index([companyId, employmentStatus])
+  @@index([branchId])
+}
+
+model Attendance {
+  id              String    @id @default(uuid())
+  employeeId      String
+  companyId       String
+  branchId        String?
+  attendanceDate  DateTime  @db.Date
+  clockIn         DateTime?
+  clockOut        DateTime?
+  workedMinutes   Int?
+  overtimeMinutes Int?
+  status          String // PRESENT | ABSENT | LATE | HALF_DAY | LEAVE | HOLIDAY | OFF_DAY
+  source          String    @default("MANUAL") // MANUAL | DEVICE | IMPORT
+  notes           String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, attendanceDate])
+  @@index([companyId, attendanceDate])
+}
+
+model LeaveType {
+  id                String  @id @default(uuid())
+  companyId         String
+  code              String
+  name              String
+  description       String?
+  paid              Boolean @default(true)
+  requiresAttachment Boolean @default(false)
+  requiresApproval  Boolean @default(true)
+  annualAllowance   Int?
+  carryForward      Boolean @default(false)
+  status            String  @default("ACTIVE")
+
+  leaveRequests LeaveRequest[]
+
+  @@unique([companyId, code])
+}
+
+model LeaveRequest {
+  id                 String    @id @default(uuid())
+  employeeId         String
+  leaveTypeId        String
+  companyId          String
+  branchId           String?
+  startDate          DateTime  @db.Date
+  endDate            DateTime  @db.Date
+  requestedDays      Decimal   @db.Decimal(5, 1)
+  reason             String?
+  status             String    @default("DRAFT") // DRAFT | SUBMITTED | PENDING_APPROVAL | APPROVED | REJECTED | CANCELLED
+  submittedAt        DateTime?
+  approvedAt         DateTime?
+  approvedBy         String?
+  rejectedAt         DateTime?
+  rejectedBy         String?
+  workflowInstanceId String?   @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType  LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@index([employeeId, startDate])
+}
+
+model Holiday {
+  id           String   @id @default(uuid())
+  companyId    String
+  branchId     String?
+  name         String
+  holidayDate  DateTime @db.Date
+  isRecurring  Boolean  @default(false)
+  status       String   @default("ACTIVE")
+
+  @@index([companyId, holidayDate])
 }
 
 // ---------------------------------------------------------------------------

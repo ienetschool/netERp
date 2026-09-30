@@ -23,6 +23,8 @@ import { WorkflowController } from './workflow/workflow.controller.js';
 import { WorkflowEngineService } from './workflow/workflow-engine.service.js';
 import { SettingsController } from './settings/settings.controller.js';
 import { SettingsService } from './settings/settings.service.js';
+import { HrController } from './hr/hr.controller.js';
+import { HrService } from './hr/hr.service.js';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
@@ -59,6 +61,7 @@ import { JwtModule } from '@nestjs/jwt';
     AuditController,
     WorkflowController,
     SettingsController,
+    HrController,
   ],
   providers: [
     AuthService,
@@ -69,6 +72,7 @@ import { JwtModule } from '@nestjs/jwt';
     OutboxService,
     WorkflowEngineService,
     SettingsService,
+    HrService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ApiEnvelopeInterceptor },

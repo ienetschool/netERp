@@ -27,7 +27,10 @@ export const NAVIGATION: NavItem[] = [
   {
     label: 'HR',
     permission: 'hr.employee.view',
-    children: [{ label: 'Employees', href: '/hr/employees', permission: 'hr.employee.view' }],
+    children: [
+      { label: 'Employees', href: '/hr/employees', permission: 'hr.employee.view' },
+      { label: 'Leave', href: '/hr/leave', permission: 'hr.leave.view' },
+    ],
   },
   {
     label: 'Payroll',

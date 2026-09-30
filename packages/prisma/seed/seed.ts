@@ -490,6 +490,188 @@ async function ensureDemoWorkflow(
   });
 }
 
+/**
+ * HR demo data (PRD Stage 3): leave types, holidays, employees, and a
+ * leave_request approval workflow routed to the BRANCH_MANAGER role.
+ */
+async function ensureHrData(
+  roleIds: Map<string, string>,
+  org: { companyId: string; branchId: string; departmentId: string },
+): Promise<void> {
+  const leaveTypes: Array<{ code: string; name: string; paid: boolean; allowance: number | null }> =
+    [
+      { code: 'AL', name: 'Annual Leave', paid: true, allowance: 20 },
+      { code: 'SL', name: 'Sick Leave', paid: true, allowance: 10 },
+      { code: 'UPL', name: 'Unpaid Leave', paid: false, allowance: null },
+    ];
+  for (const lt of leaveTypes) {
+    await prisma.leaveType.upsert({
+      where: { companyId_code: { companyId: org.companyId, code: lt.code } },
+      update: {},
+      create: {
+        companyId: org.companyId,
+        code: lt.code,
+        name: lt.name,
+        paid: lt.paid,
+        annualAllowance: lt.allowance,
+        requiresApproval: true,
+      },
+    });
+  }
+
+  const year = new Date().getUTCFullYear();
+  const holidays = [
+    { name: 'New Year Day', date: `${year}-01-01` },
+    { name: 'Company Foundation Day', date: `${year}-06-15` },
+  ];
+  for (const h of holidays) {
+    const existing = await prisma.holiday.findFirst({
+      where: { companyId: org.companyId, holidayDate: new Date(`${h.date}T00:00:00Z`) },
+    });
+    if (!existing) {
+      await prisma.holiday.create({
+        data: {
+          companyId: org.companyId,
+          branchId: org.branchId,
+          name: h.name,
+          holidayDate: new Date(`${h.date}T00:00:00Z`),
+        },
+      });
+    }
+  }
+
+  const employees: Array<{ no: string; first: string; last: string; title: string }> = [
+    { no: 'E-0001', first: 'Amina', last: 'Diop', title: 'Office Manager' },
+    { no: 'E-0002', first: 'Ravi', last: 'Sharma', title: 'Accountant' },
+    { no: 'E-0003', first: 'Lena', last: 'Novak', title: 'Sales Officer' },
+  ];
+  const employeeIds: string[] = [];
+  for (const e of employees) {
+    const row = await prisma.employee.upsert({
+      where: { companyId_employeeNo: { companyId: org.companyId, employeeNo: e.no } },
+      update: {},
+      create: {
+        companyId: org.companyId,
+        branchId: org.branchId,
+        departmentId: org.departmentId,
+        employeeNo: e.no,
+        firstName: e.first,
+        lastName: e.last,
+        displayName: `${e.first} ${e.last}`,
+        email: `${e.no.toLowerCase()}@demo.local`,
+        hireDate: new Date(`${year - 1}-01-01T00:00:00Z`),
+        employmentStatus: 'ACTIVE',
+        employmentType: 'FULL_TIME',
+        jobTitle: e.title,
+      },
+    });
+    employeeIds.push(row.id);
+  }
+
+  // leave_request workflow: DRAFT -> PENDING_APPROVAL (BRANCH_MANAGER) -> APPROVED/REJECTED
+  const existingLeaveWorkflow = await prisma.workflowDefinition.findFirst({
+    where: { companyId: org.companyId, entityType: 'leave_request', version: 1 },
+  });
+  if (!existingLeaveWorkflow) {
+    const approverRoleId = roleIds.get('BRANCH_MANAGER');
+    if (!approverRoleId) throw new Error('BRANCH_MANAGER role missing after seed');
+    const definition = await prisma.workflowDefinition.create({
+      data: {
+        companyId: org.companyId,
+        name: 'Leave request approval',
+        entityType: 'leave_request',
+        version: 1,
+        status: 'ACTIVE',
+      },
+    });
+    await prisma.workflowState.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          code: 'DRAFT',
+          name: 'Draft',
+          isInitial: true,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'PENDING_APPROVAL',
+          name: 'Pending Approval',
+          isInitial: false,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'APPROVED',
+          name: 'Approved',
+          isInitial: false,
+          isTerminal: true,
+        },
+        {
+          definitionId: definition.id,
+          code: 'REJECTED',
+          name: 'Rejected',
+          isInitial: false,
+          isTerminal: true,
+        },
+      ],
+    });
+    const states = await prisma.workflowState.findMany({ where: { definitionId: definition.id } });
+    const byCode = new Map(states.map((s) => [s.code, s.id]));
+    await prisma.workflowTransition.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('DRAFT') as string,
+          toStateId: byCode.get('PENDING_APPROVAL') as string,
+          action: 'submit',
+          condition: { approverType: 'ROLE', approverId: approverRoleId },
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('APPROVED') as string,
+          action: 'approve',
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('REJECTED') as string,
+          action: 'reject',
+        },
+      ],
+    });
+  }
+
+  // A ready-to-approve demo leave request sitting in the manager inbox.
+  const annualLeave = await prisma.leaveType.findFirst({
+    where: { companyId: org.companyId, code: 'AL' },
+  });
+  const existingLeaveRequest = await prisma.leaveRequest.findFirst({
+    where: {
+      companyId: org.companyId,
+      employeeId: employeeIds[0] as string,
+      startDate: new Date(`${year + 1}-01-05T00:00:00Z`),
+    },
+  });
+  if (annualLeave && employeeIds[0] && !existingLeaveRequest) {
+    await prisma.leaveRequest.create({
+      data: {
+        employeeId: employeeIds[0],
+        leaveTypeId: annualLeave.id,
+        companyId: org.companyId,
+        branchId: org.branchId,
+        startDate: new Date(`${year + 1}-01-05T00:00:00Z`),
+        endDate: new Date(`${year + 1}-01-09T00:00:00Z`),
+        requestedDays: 5,
+        reason: 'Seed demo: pending approval',
+        status: 'PENDING_APPROVAL',
+        submittedAt: new Date(),
+      },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   console.log('Seeding foundation data...');
   const permissions = await ensurePermissions();
@@ -499,8 +681,13 @@ async function main(): Promise<void> {
   const org = await ensureCompanyTree();
   await ensureUsers(roles, org);
   await ensureDemoWorkflow(roles, { companyId: org.companyId });
+  await ensureHrData(roles, {
+    companyId: org.companyId,
+    branchId: org.branchId,
+    departmentId: org.departmentId,
+  });
   console.log('Seed complete. Users: admin@demo.local / manager@demo.local (password: Admin123!)');
-  console.log('Demo workflow: purchase_request approval routed to BRANCH_MANAGER.');
+  console.log('Demo workflows: purchase_request and leave_request routed to BRANCH_MANAGER.');
 }
 
 main()

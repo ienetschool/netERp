@@ -58,6 +58,27 @@ carry money.
 - Playwright e2e configured (`apps/web/e2e/login.spec.ts`) but browsers not installed in this environment; run when a stack is up.
 - Gates: `typecheck`, `lint`, `test:unit`, `build` all green per workspace; CI (`.github/workflows/ci.yml`) replays migration + seed against a Postgres service.
 
+## Stage 3 — HR (implemented)
+
+Per the PRD stage plan (Stage 3 = employees, attendance, leave, holidays, calendar):
+
+- **Employees** (`Employee`, `/hr/employees`): full demographic + employment record
+  per DATA-MODEL §6, manager hierarchy, lifecycle status
+  (DRAFT → ACTIVE → ON_LEAVE / SUSPENDED → TERMINATED / RETIRED), company-scoped
+  listing and 404-on-out-of-scope reads.
+- **Attendance** (`Attendance`, `/hr/attendance`): per-employee/per-day upsert with
+  status taxonomy and clock in/out + worked/overtime minutes; raw device-event
+  capture deferred (DATA-MODEL §7 keeps them separate).
+- **Leave** (`LeaveType`, `LeaveRequest`, `/hr/leave`): create → submit; submitting
+  starts a `leave_request` workflow instance and advances it through the
+  definition's `submit` action, so the approver declared on that transition gets an
+  inbox task automatically. Workflow terminal outcomes bridge back via
+  `applyWorkflowOutcome` (wired for APPROVED/REJECTED).
+- **Holidays** (`Holiday`, `/hr/holidays`): company/branch holidays by year.
+- Seed: 3 demo employees, AL/SL/UPL leave types, 2 holidays, a `leave_request`
+  workflow routed to BRANCH_MANAGER, and one PENDING_APPROVAL leave request ready
+  in the manager inbox.
+
 ## Deliberate deferrals (later stages)
 
 1. Accounting ledger beyond the chart-of-accounts seed (later PRD stage).
