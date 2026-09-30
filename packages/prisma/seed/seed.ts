@@ -399,6 +399,97 @@ async function ensureUsers(
   }
 }
 
+/**
+ * Demo approval workflow (PRD Stage 2: lets the workflow engine and approval
+ * inbox be exercised end-to-end). Purchase requests route:
+ * DRAFT --submit--> PENDING_APPROVAL --approve--> APPROVED
+ *                                 --reject--->  REJECTED
+ * Arriving at PENDING_APPROVAL creates a task for the BRANCH_MANAGER role,
+ * which the seeded manager@demo.local holds.
+ */
+async function ensureDemoWorkflow(
+  roleIds: Map<string, string>,
+  org: { companyId: string },
+): Promise<void> {
+  const existing = await prisma.workflowDefinition.findFirst({
+    where: { companyId: org.companyId, entityType: 'purchase_request', version: 1 },
+  });
+  if (existing) return;
+
+  const approverRoleId = roleIds.get('BRANCH_MANAGER');
+  if (!approverRoleId) throw new Error('BRANCH_MANAGER role missing after seed');
+
+  const definition = await prisma.workflowDefinition.create({
+    data: {
+      companyId: org.companyId,
+      name: 'Purchase request approval',
+      entityType: 'purchase_request',
+      version: 1,
+      status: 'ACTIVE',
+    },
+  });
+
+  await prisma.workflowState.createMany({
+    data: [
+      {
+        definitionId: definition.id,
+        code: 'DRAFT',
+        name: 'Draft',
+        isInitial: true,
+        isTerminal: false,
+      },
+      {
+        definitionId: definition.id,
+        code: 'PENDING_APPROVAL',
+        name: 'Pending Approval',
+        isInitial: false,
+        isTerminal: false,
+      },
+      {
+        definitionId: definition.id,
+        code: 'APPROVED',
+        name: 'Approved',
+        isInitial: false,
+        isTerminal: true,
+      },
+      {
+        definitionId: definition.id,
+        code: 'REJECTED',
+        name: 'Rejected',
+        isInitial: false,
+        isTerminal: true,
+      },
+    ],
+  });
+
+  const states = await prisma.workflowState.findMany({ where: { definitionId: definition.id } });
+  const byCode = new Map(states.map((s) => [s.code, s.id]));
+
+  await prisma.workflowTransition.createMany({
+    data: [
+      {
+        definitionId: definition.id,
+        fromStateId: byCode.get('DRAFT') as string,
+        toStateId: byCode.get('PENDING_APPROVAL') as string,
+        action: 'submit',
+        condition: { approverType: 'ROLE', approverId: approverRoleId },
+      },
+      {
+        definitionId: definition.id,
+        fromStateId: byCode.get('PENDING_APPROVAL') as string,
+        toStateId: byCode.get('APPROVED') as string,
+        action: 'approve',
+      },
+      {
+        definitionId: definition.id,
+        fromStateId: byCode.get('PENDING_APPROVAL') as string,
+        toStateId: byCode.get('REJECTED') as string,
+        action: 'reject',
+      },
+    ],
+  });
+}
+
 async function main(): Promise<void> {
   console.log('Seeding foundation data...');
   const permissions = await ensurePermissions();
@@ -407,7 +498,9 @@ async function main(): Promise<void> {
   console.log(`Roles: ${roles.size}`);
   const org = await ensureCompanyTree();
   await ensureUsers(roles, org);
+  await ensureDemoWorkflow(roles, { companyId: org.companyId });
   console.log('Seed complete. Users: admin@demo.local / manager@demo.local (password: Admin123!)');
+  console.log('Demo workflow: purchase_request approval routed to BRANCH_MANAGER.');
 }
 
 main()

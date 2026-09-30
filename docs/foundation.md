@@ -41,6 +41,10 @@ addressed tasks; approve advances through the state's `approve` transition (or
   (string/number/boolean/json) with platform-level rows (companyId NULL) and
   per-company override precedence; read for any authenticated principal, writes gated
   by `settings.configuration.*` permissions; web admin page at `/admin/settings`.
+- **Seeded demo workflow** (`purchase_request`): DRAFT → PENDING_APPROVAL →
+  APPROVED / REJECTED; arriving at PENDING_APPROVAL tasks the BRANCH_MANAGER
+  role (held by manager@demo.local), so the inbox is exercisable right after
+  `db:seed`. See [ADR-0007](adr/0007-workflow-engine.md).
 
 ## Money
 

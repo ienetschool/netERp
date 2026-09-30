@@ -267,6 +267,27 @@ export class WorkflowEngineService {
       if (!options?.rejectionReason) {
         throw new BusinessRuleError('A rejection reason is required');
       }
+      // Follow the definition's `reject` transition when one exists so the
+      // instance lands in the modeled rejection state; otherwise just end it.
+      const currentStateRow = await this.prisma.workflowState.findFirst({
+        where: { definitionId: task.instance.definitionId, code: task.instance.currentState },
+      });
+      const rejectTransition = currentStateRow
+        ? await this.prisma.workflowTransition.findFirst({
+            where: {
+              definitionId: task.instance.definitionId,
+              fromStateId: currentStateRow.id,
+              action: 'reject',
+            },
+          })
+        : null;
+      let targetCode: string | null = null;
+      if (rejectTransition) {
+        const target = await this.prisma.workflowState.findUnique({
+          where: { id: rejectTransition.toStateId },
+        });
+        if (target) targetCode = target.code;
+      }
       await this.prisma.$transaction(async (tx) => {
         await tx.approvalTask.update({
           where: { id: task.id },
@@ -280,10 +301,13 @@ export class WorkflowEngineService {
         });
         await tx.workflowInstance.update({
           where: { id: task.instanceId },
-          data: { completedAt: new Date() },
+          data: {
+            ...(targetCode ? { currentState: targetCode } : {}),
+            completedAt: new Date(),
+          },
         });
       });
-      return { currentState: task.instance.currentState, instanceStatus: 'REJECTED' };
+      return { currentState: targetCode ?? task.instance.currentState, instanceStatus: 'REJECTED' };
     }
 
     // APPROVE: mark the task satisfied, then follow the state's `approve`
