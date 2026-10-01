@@ -27,6 +27,8 @@ import { HrController } from './hr/hr.controller.js';
 import { HrService } from './hr/hr.service.js';
 import { PayrollController } from './payroll/payroll.controller.js';
 import { PayrollService } from './payroll/payroll.service.js';
+import { ProcurementController } from './procurement/procurement.controller.js';
+import { ProcurementService } from './procurement/procurement.service.js';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
@@ -65,6 +67,7 @@ import { JwtModule } from '@nestjs/jwt';
     SettingsController,
     HrController,
     PayrollController,
+    ProcurementController,
   ],
   providers: [
     AuthService,
@@ -77,6 +80,7 @@ import { JwtModule } from '@nestjs/jwt';
     SettingsService,
     HrService,
     PayrollService,
+    ProcurementService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ApiEnvelopeInterceptor },

@@ -19,6 +19,7 @@ const MODULES_RESOURCES: Record<string, string[]> = {
     'supplier',
     'purchase_request',
     'rfq',
+    'quotation',
     'purchase_order',
     'goods_receipt',
     'supplier_invoice',
@@ -662,6 +663,101 @@ async function ensureHrData(
           definitionId: definition.id,
           fromStateId: byCode.get('PENDING_APPROVAL') as string,
           toStateId: byCode.get('REJECTED') as string,
+          action: 'reject',
+        },
+      ],
+    });
+  }
+
+  // Demo supplier so procurement flows can be exercised immediately.
+  const usd = await prisma.currency.findUnique({ where: { code: 'USD' } });
+  if (usd) {
+    await prisma.supplier.upsert({
+      where: { companyId_supplierNo: { companyId: org.companyId, supplierNo: 'SUP-0001' } },
+      update: {},
+      create: {
+        companyId: org.companyId,
+        branchId: org.branchId,
+        supplierNo: 'SUP-0001',
+        legalName: 'Office Supplies Trading LLC',
+        displayName: 'Office Supplies Trading',
+        email: 'sales@officesupplies.example',
+        currencyId: usd.id,
+      },
+    });
+  }
+
+  // purchase_order workflow: DRAFT -> PENDING_APPROVAL (BRANCH_MANAGER) -> APPROVED/REJECTED
+  const existingPoWorkflow = await prisma.workflowDefinition.findFirst({
+    where: { companyId: org.companyId, entityType: 'purchase_order', version: 1 },
+  });
+  if (!existingPoWorkflow) {
+    const poApproverRoleId = roleIds.get('BRANCH_MANAGER');
+    if (!poApproverRoleId) throw new Error('BRANCH_MANAGER role missing after seed');
+    const poDefinition = await prisma.workflowDefinition.create({
+      data: {
+        companyId: org.companyId,
+        name: 'Purchase order approval',
+        entityType: 'purchase_order',
+        version: 1,
+        status: 'ACTIVE',
+      },
+    });
+    await prisma.workflowState.createMany({
+      data: [
+        {
+          definitionId: poDefinition.id,
+          code: 'DRAFT',
+          name: 'Draft',
+          isInitial: true,
+          isTerminal: false,
+        },
+        {
+          definitionId: poDefinition.id,
+          code: 'PENDING_APPROVAL',
+          name: 'Pending Approval',
+          isInitial: false,
+          isTerminal: false,
+        },
+        {
+          definitionId: poDefinition.id,
+          code: 'APPROVED',
+          name: 'Approved',
+          isInitial: false,
+          isTerminal: true,
+        },
+        {
+          definitionId: poDefinition.id,
+          code: 'REJECTED',
+          name: 'Rejected',
+          isInitial: false,
+          isTerminal: true,
+        },
+      ],
+    });
+    const poStates = await prisma.workflowState.findMany({
+      where: { definitionId: poDefinition.id },
+    });
+    const poByCode = new Map(poStates.map((s) => [s.code, s.id]));
+    await prisma.workflowTransition.createMany({
+      data: [
+        {
+          definitionId: poDefinition.id,
+          fromStateId: poByCode.get('DRAFT') as string,
+          toStateId: poByCode.get('PENDING_APPROVAL') as string,
+          action: 'submit',
+          condition: { approverType: 'ROLE', approverId: poApproverRoleId },
+        },
+        {
+          definitionId: poDefinition.id,
+          fromStateId: poByCode.get('PENDING_APPROVAL') as string,
+          toStateId: poByCode.get('APPROVED') as string,
+          action: 'approve',
+        },
+        {
+          definitionId: poDefinition.id,
+          fromStateId: poByCode.get('PENDING_APPROVAL') as string,
+          toStateId: poByCode.get('REJECTED') as string,
           action: 'reject',
         },
       ],

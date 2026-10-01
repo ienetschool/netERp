@@ -55,6 +55,11 @@ export const NAVIGATION: NavItem[] = [
         permission: 'procurement.supplier.view',
       },
       {
+        label: 'Purchase Requests',
+        href: '/procurement/purchase-requests',
+        permission: 'procurement.purchase_request.view',
+      },
+      {
         label: 'Purchase Orders',
         href: '/procurement/purchase-orders',
         permission: 'procurement.purchase_order.view',

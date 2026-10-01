@@ -3,6 +3,7 @@ import type { Prisma } from '@erp/prisma';
 import { BusinessRuleError } from '../common/errors.js';
 
 export const DOCUMENT_TYPES = {
+  SUPPLIER: 'SUPPLIER',
   PURCHASE_REQUEST: 'PURCHASE_REQUEST',
   RFQ: 'RFQ',
   SUPPLIER_QUOTATION: 'SUPPLIER_QUOTATION',
@@ -25,6 +26,7 @@ export const DOCUMENT_TYPES = {
 export type DocumentType = (typeof DOCUMENT_TYPES)[keyof typeof DOCUMENT_TYPES];
 
 const PREFIXES: Record<string, string> = {
+  SUPPLIER: 'SUP',
   PURCHASE_REQUEST: 'PR',
   RFQ: 'RFQ',
   SUPPLIER_QUOTATION: 'SQ',
