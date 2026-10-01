@@ -59,20 +59,21 @@ const ACTIONS = [
 ];
 
 async function ensurePermissions(): Promise<Map<string, string>> {
-  const byKey = new Map<string, string>();
+  const rows: Array<{ module: string; resource: string; action: string }> = [];
   for (const [module, resources] of Object.entries(MODULES_RESOURCES)) {
     for (const resource of resources) {
       for (const action of ACTIONS) {
-        const key = `${module}.${resource}.${action}`;
-        const permission = await prisma.permission.upsert({
-          where: { module_resource_action: { module, resource, action } },
-          update: {},
-          create: { module, resource, action },
-        });
-        byKey.set(key, permission.id);
+        rows.push({ module, resource, action });
       }
     }
   }
+  await prisma.permission.createMany({ data: rows, skipDuplicates: true });
+  const all = await prisma.permission.findMany({
+    select: { id: true, module: true, resource: true, action: true },
+  });
+  const byKey = new Map<string, string>(
+    all.map((p) => [`${p.module}.${p.resource}.${p.action}`, p.id] as const),
+  );
   return byKey;
 }
 
@@ -207,17 +208,15 @@ async function ensureRoles(permissions: Map<string, string>): Promise<Map<string
     });
     byCode.set(def.code, role.id);
 
-    const existing = await prisma.rolePermission.findMany({ where: { roleId: role.id } });
-    const existingSet = new Set(existing.map((rp) => rp.permissionId));
-    const toAdd: string[] = [];
+    const rows: Array<{ roleId: string; permissionId: string }> = [];
     for (const [key, permissionId] of permissions) {
       const [module, resource, action] = key.split('.');
-      if (existingSet.has(permissionId)) continue;
-      if (def.include(module ?? '', resource ?? '', action ?? '')) toAdd.push(permissionId);
+      if (def.include(module ?? '', resource ?? '', action ?? ''))
+        rows.push({ roleId: role.id, permissionId });
     }
-    if (toAdd.length > 0) {
+    if (rows.length > 0) {
       await prisma.rolePermission.createMany({
-        data: toAdd.map((permissionId) => ({ roleId: role.id, permissionId })),
+        data: rows,
         skipDuplicates: true,
       });
     }
@@ -979,6 +978,7 @@ async function main(): Promise<void> {
   console.log(`Permissions: ${permissions.size}`);
   const roles = await ensureRoles(permissions);
   console.log(`Roles: ${roles.size}`);
+  console.log('Company tree, users, workflows, demo data...');
   const org = await ensureCompanyTree();
   await ensureUsers(roles, org);
   await ensureDemoWorkflow(roles, { companyId: org.companyId });

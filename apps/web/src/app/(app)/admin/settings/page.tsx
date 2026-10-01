@@ -34,7 +34,7 @@ export default function SettingsPage() {
 
   const listQuery = useQuery({
     queryKey: ['settings'],
-    queryFn: () => api.get<{ data: SettingRow[] }>('/settings'),
+    queryFn: () => api.get<SettingRow[]>('/settings'),
   });
 
   const upsertMutation = useMutation({
@@ -188,7 +188,7 @@ export default function SettingsPage() {
 
       <DataTable
         columns={columns}
-        rows={listQuery.data?.data}
+        rows={listQuery.data}
         loading={listQuery.isLoading}
         error={listQuery.error}
         getRowKey={(r) => r.id}

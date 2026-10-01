@@ -40,6 +40,11 @@ export class ApiEnvelopeInterceptor implements NestInterceptor {
           }
           return body;
         }
+        // Controllers that pre-wrap in `{ data: ... }` count as shaped too —
+        // stamp meta instead of wrapping again (which would emit data.data).
+        if (typeof body === 'object' && 'data' in (body as Record<string, unknown>)) {
+          return { ...body, meta: { requestId } };
+        }
         return { data: body, meta: { requestId } };
       }),
     );

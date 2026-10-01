@@ -18,7 +18,7 @@ export default function NotificationsPage() {
   const queryClient = useQueryClient();
   const listQuery = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => api.get<{ data: NotificationRow[] }>('/notifications'),
+    queryFn: () => api.get<NotificationRow[]>('/notifications'),
   });
 
   const markRead = useMutation({
@@ -26,7 +26,7 @@ export default function NotificationsPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
-  const rows = listQuery.data?.data ?? [];
+  const rows = listQuery.data ?? [];
 
   return (
     <div>

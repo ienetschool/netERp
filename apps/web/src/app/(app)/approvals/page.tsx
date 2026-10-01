@@ -34,7 +34,7 @@ export default function ApprovalsPage() {
 
   const inboxQuery = useQuery({
     queryKey: ['approvals', 'inbox'],
-    queryFn: () => api.get<{ data: ApprovalTaskRow[] }>('/workflow/approval-tasks?status=PENDING'),
+    queryFn: () => api.get<ApprovalTaskRow[]>('/workflow/approval-tasks?status=PENDING'),
   });
 
   const actMutation = useMutation({
@@ -65,7 +65,7 @@ export default function ApprovalsPage() {
     },
   });
 
-  const rows = inboxQuery.data?.data ?? [];
+  const rows = inboxQuery.data ?? [];
 
   return (
     <div>
