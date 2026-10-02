@@ -200,7 +200,10 @@ async function ensureRoles(permissions: Map<string, string>): Promise<Map<string
   ];
 
   const byCode = new Map<string, string>();
+  let roleIdx = 0;
   for (const def of roleDefs) {
+    roleIdx += 1;
+    console.log(`[seed] ensureRoles ${roleIdx}/${roleDefs.length} ${def.code}`);
     const role = await prisma.role.upsert({
       where: { code: def.code },
       update: {},
@@ -214,6 +217,7 @@ async function ensureRoles(permissions: Map<string, string>): Promise<Map<string
       if (def.include(module ?? '', resource ?? '', action ?? ''))
         rows.push({ roleId: role.id, permissionId });
     }
+    console.log(`[seed] ensureRoles ${roleIdx}/${roleDefs.length} ${def.code} -> ${rows.length} perms`);
     if (rows.length > 0) {
       await prisma.rolePermission.createMany({
         data: rows,
@@ -1154,19 +1158,25 @@ async function main(): Promise<void> {
   console.log(`Roles: ${roles.size}`);
   console.log('Company tree, users, workflows, demo data...');
   const org = await ensureCompanyTree();
+  console.log('Company tree ok');
   await ensureUsers(roles, org);
+  console.log('Users ok');
   await ensureDemoWorkflow(roles, { companyId: org.companyId });
+  console.log('Demo workflow ok');
   await ensureHrData(roles, {
     companyId: org.companyId,
     branchId: org.branchId,
     departmentId: org.departmentId,
   });
+  console.log('HR data ok');
   await ensurePayrollData(roles, { companyId: org.companyId, branchId: org.branchId });
+  console.log('Payroll data ok');
   await ensureInventoryData(roles, {
     companyId: org.companyId,
     branchId: org.branchId,
     warehouseId: org.warehouseId,
   });
+  console.log('Inventory data ok');
   console.log(
     'Seed complete. Users: admin@demo.local / manager@demo.local / finance@demo.local (password: Admin123!)',
   );

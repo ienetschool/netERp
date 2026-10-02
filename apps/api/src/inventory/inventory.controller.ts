@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { InventoryService } from './inventory.service.js';
-import { RequirePermissions } from '../iam/permissions.guard.js';
+import { RequirePermissions, PermissionsGuard } from '../iam/permissions.guard.js';
+import { JwtAuthGuard } from '../iam/jwt-auth.guard.js';
 import { getRequestId } from '../common/api-envelope.interceptor.js';
 import type { Request } from 'express';
 import type { RequestPrincipal } from '../common/request-context.js';
@@ -33,6 +34,7 @@ function parsePagination(page?: string, pageSize?: string): { page: number; page
 }
 
 @Controller('inventory')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class InventoryController {
   constructor(private readonly inventory: InventoryService) {}
 
