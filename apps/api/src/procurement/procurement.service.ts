@@ -5,6 +5,7 @@ import { BusinessRuleError, NotFoundError } from '../common/errors.js';
 import { AuditService } from '../common/audit.service.js';
 import { OutboxService } from '../platform/outbox.service.js';
 import { WorkflowEngineService } from '../workflow/workflow-engine.service.js';
+import { InventoryService } from '../inventory/inventory.service.js';
 import { NumberingService, DOCUMENT_TYPES } from '../platform/numbering.service.js';
 import type { Prisma } from '@erp/prisma';
 import type { RequestPrincipal } from '../common/request-context.js';
@@ -41,6 +42,7 @@ export class ProcurementService {
     private readonly numbering: NumberingService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    private readonly inventory: InventoryService,
   ) {}
 
   private scopeGuard(principal: Principal, companyId: string): void {
@@ -779,6 +781,23 @@ export class ProcurementService {
           },
         },
         include: { lines: true },
+      });
+      // Stage 6 bridge: stock movements + weighted-average valuation for this
+      // receipt, inside the same transaction as the GR itself.
+      await this.inventory.recordGoodsReceipt(tx, {
+        companyId: input.companyId,
+        warehouseId: created.warehouseId as string,
+        goodsReceiptId: created.id,
+        receiptNo,
+        createdById: principal.userId,
+        lines: created.lines.map((l) => ({
+          productId: l.productId,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          warehouseLocationId: l.warehouseLocationId,
+          batchNo: l.batchNo,
+          serialNo: l.serialNo,
+        })),
       });
       // Update PO received quantities and derive the PO status.
       for (const line of input.lines) {

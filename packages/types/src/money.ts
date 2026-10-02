@@ -78,6 +78,28 @@ export class Money {
     return this.value.gte(other.value);
   }
 
+  lt(other: Money): boolean {
+    return this.value.lt(other.value);
+  }
+
+  lte(other: Money): boolean {
+    return this.value.lte(other.value);
+  }
+
+  mul(other: Money): Money {
+    return new Money(this.value.mul(other.value));
+  }
+
+  /** Exact-decimal division at the configured precision (28 significant digits). */
+  div(other: Money): Money {
+    if (other.value.isZero()) throw new Error('Division by zero');
+    return new Money(this.value.div(other.value));
+  }
+
+  abs(): Money {
+    return new Money(this.value.abs());
+  }
+
   eq(other: Money): boolean {
     return this.value.eq(other.value);
   }

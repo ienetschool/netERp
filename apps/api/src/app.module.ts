@@ -29,6 +29,8 @@ import { PayrollController } from './payroll/payroll.controller.js';
 import { PayrollService } from './payroll/payroll.service.js';
 import { ProcurementController } from './procurement/procurement.controller.js';
 import { ProcurementService } from './procurement/procurement.service.js';
+import { InventoryController } from './inventory/inventory.controller.js';
+import { InventoryService } from './inventory/inventory.service.js';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
@@ -68,6 +70,7 @@ import { JwtModule } from '@nestjs/jwt';
     HrController,
     PayrollController,
     ProcurementController,
+    InventoryController,
   ],
   providers: [
     AuthService,
@@ -81,6 +84,7 @@ import { JwtModule } from '@nestjs/jwt';
     HrService,
     PayrollService,
     ProcurementService,
+    InventoryService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ApiEnvelopeInterceptor },

@@ -71,6 +71,7 @@ export const NAVIGATION: NavItem[] = [
     permission: 'inventory.product.view',
     children: [
       { label: 'Products', href: '/inventory/products', permission: 'inventory.product.view' },
+      { label: 'Stock', href: '/inventory/stock', permission: 'inventory.stock.view' },
     ],
   },
   {

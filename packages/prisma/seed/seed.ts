@@ -972,6 +972,180 @@ async function ensurePayrollData(
   }
 }
 
+async function ensureInventoryData(
+  roleIds: Map<string, string>,
+  org: { companyId: string; branchId: string; warehouseId: string },
+): Promise<void> {
+  const warehouse = await prisma.warehouse.findUnique({ where: { id: org.warehouseId } });
+  if (!warehouse) throw new Error('Main warehouse missing after seed');
+  const location = await prisma.warehouseLocation.findUnique({
+    where: { warehouseId_code: { warehouseId: org.warehouseId, code: 'GENERAL' } },
+  });
+  if (!location) throw new Error('GENERAL warehouse location missing after seed');
+
+  const unit = await prisma.unitOfMeasure.upsert({
+    where: { companyId_code: { companyId: org.companyId, code: 'EA' } },
+    update: {},
+    create: { companyId: org.companyId, code: 'EA', name: 'Each', symbol: 'ea', precision: 0 },
+  });
+
+  const category = await prisma.productCategory.upsert({
+    where: { companyId_code: { companyId: org.companyId, code: 'OFFICE' } },
+    update: {},
+    create: { companyId: org.companyId, code: 'OFFICE', name: 'Office Supplies' },
+  });
+
+  const demoProducts = [
+    { sku: 'SKU-0001', name: 'A4 Copy Paper (ream)', standardCost: '4.50', reorderLevel: '20' },
+    {
+      sku: 'SKU-0002',
+      name: 'Ballpoint Pen (box of 12)',
+      standardCost: '3.20',
+      reorderLevel: '15',
+    },
+    { sku: 'SKU-0003', name: 'Stapler', standardCost: '6.00', reorderLevel: '5' },
+    { sku: 'SKU-0004', name: 'Sticky Notes (pack)', standardCost: '1.80', reorderLevel: '25' },
+    { sku: 'SKU-0005', name: 'Whiteboard Marker (set)', standardCost: '5.40', reorderLevel: '10' },
+  ];
+  const productIds: string[] = [];
+  for (const p of demoProducts) {
+    const row = await prisma.product.upsert({
+      where: { companyId_sku: { companyId: org.companyId, sku: p.sku } },
+      update: {},
+      create: {
+        companyId: org.companyId,
+        sku: p.sku,
+        name: p.name,
+        categoryId: category.id,
+        productType: 'STOCK',
+        baseUnitId: unit.id,
+        standardCost: p.standardCost,
+        reorderLevel: p.reorderLevel,
+        reorderQty: '10',
+      },
+    });
+    productIds.push(row.id);
+  }
+
+  // Opening stock: one RECEIPT movement + balance per product (idempotent —
+  // the movement reference is unique per product, so re-seeding is a no-op).
+  for (const [index, productId] of productIds.entries()) {
+    const product = demoProducts[index];
+    if (!product) continue;
+    const existing = await prisma.stockMovement.findFirst({
+      where: {
+        productId,
+        referenceType: 'opening_stock',
+        referenceNo: 'OPENING',
+      },
+    });
+    if (existing) continue;
+    const quantity = '100';
+    await prisma.$transaction(async (tx) => {
+      await tx.stockBalance.create({
+        data: {
+          companyId: org.companyId,
+          warehouseId: org.warehouseId,
+          warehouseLocationId: location.id,
+          productId,
+          onHand: quantity,
+          avgCost: product.standardCost,
+        },
+      });
+      await tx.stockMovement.create({
+        data: {
+          companyId: org.companyId,
+          warehouseId: org.warehouseId,
+          warehouseLocationId: location.id,
+          productId,
+          movementType: 'RECEIPT',
+          quantity,
+          unitCost: product.standardCost,
+          totalCost: (Number(product.standardCost) * 100).toFixed(2),
+          referenceType: 'opening_stock',
+          referenceNo: 'OPENING',
+        },
+      });
+    });
+  }
+
+  // stock_adjustment workflow mirrors the payroll_run shape (DRAFT →
+  // PENDING_APPROVAL → APPROVED/REJECTED, approver INVENTORY_MANAGER).
+  const existingAdjWorkflow = await prisma.workflowDefinition.findFirst({
+    where: { companyId: org.companyId, entityType: 'stock_adjustment', version: 1 },
+  });
+  if (!existingAdjWorkflow) {
+    const approverRoleId = roleIds.get('INVENTORY_MANAGER');
+    if (!approverRoleId) throw new Error('INVENTORY_MANAGER role missing after seed');
+    const definition = await prisma.workflowDefinition.create({
+      data: {
+        companyId: org.companyId,
+        name: 'Stock adjustment approval',
+        entityType: 'stock_adjustment',
+        version: 1,
+        status: 'ACTIVE',
+      },
+    });
+    await prisma.workflowState.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          code: 'DRAFT',
+          name: 'Draft',
+          isInitial: true,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'PENDING_APPROVAL',
+          name: 'Pending Approval',
+          isInitial: false,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'APPROVED',
+          name: 'Approved',
+          isInitial: false,
+          isTerminal: true,
+        },
+        {
+          definitionId: definition.id,
+          code: 'REJECTED',
+          name: 'Rejected',
+          isInitial: false,
+          isTerminal: true,
+        },
+      ],
+    });
+    const states = await prisma.workflowState.findMany({ where: { definitionId: definition.id } });
+    const byCode = new Map(states.map((s) => [s.code, s.id]));
+    await prisma.workflowTransition.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('DRAFT') as string,
+          toStateId: byCode.get('PENDING_APPROVAL') as string,
+          action: 'submit',
+          condition: { approverType: 'ROLE', approverId: approverRoleId },
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('APPROVED') as string,
+          action: 'approve',
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('REJECTED') as string,
+          action: 'reject',
+        },
+      ],
+    });
+  }
+}
+
 async function main(): Promise<void> {
   console.log('Seeding foundation data...');
   const permissions = await ensurePermissions();
@@ -988,11 +1162,16 @@ async function main(): Promise<void> {
     departmentId: org.departmentId,
   });
   await ensurePayrollData(roles, { companyId: org.companyId, branchId: org.branchId });
+  await ensureInventoryData(roles, {
+    companyId: org.companyId,
+    branchId: org.branchId,
+    warehouseId: org.warehouseId,
+  });
   console.log(
     'Seed complete. Users: admin@demo.local / manager@demo.local / finance@demo.local (password: Admin123!)',
   );
   console.log(
-    'Demo workflows: purchase_request and leave_request to BRANCH_MANAGER; payroll_run to FINANCE_MANAGER.',
+    'Demo workflows: purchase_request and leave_request to BRANCH_MANAGER; payroll_run to FINANCE_MANAGER; stock_adjustment to INVENTORY_MANAGER.',
   );
 }
 

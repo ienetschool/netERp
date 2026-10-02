@@ -6,3 +6,4 @@ export * from './settings.js';
 export * from './hr.js';
 export * from './payroll.js';
 export * from './procurement.js';
+export * from './inventory.js';

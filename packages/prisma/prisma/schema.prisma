@@ -45,6 +45,13 @@ model Company {
   warehouses       Warehouse[]
   financialPeriods FinancialPeriod[]
   accounts         Account[]
+  unitOfMeasures   UnitOfMeasure[]
+  productCategories ProductCategory[]
+  products         Product[]
+  stockBalances    StockBalance[]
+  stockMovements   StockMovement[]
+  stockTransfers   StockTransfer[]
+  stockAdjustments StockAdjustment[]
 
   @@index([status])
 }
@@ -134,6 +141,11 @@ model Warehouse {
   company   Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
   branch    Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
   locations WarehouseLocation[]
+  stockBalances StockBalance[]
+  movements     StockMovement[]
+  transfersFrom StockTransfer[]    @relation("TransfersFrom")
+  transfersTo   StockTransfer[]    @relation("TransfersTo")
+  adjustments   StockAdjustment[]
 
   @@unique([companyId, code])
   @@index([companyId, branchId, status])
@@ -153,6 +165,8 @@ model WarehouseLocation {
   warehouse Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   parent    WarehouseLocation?  @relation("LocationTree", fields: [parentId], references: [id])
   children  WarehouseLocation[] @relation("LocationTree")
+  stockBalances StockBalance[]
+  movements     StockMovement[]
 
   @@unique([warehouseId, code])
 }
@@ -616,6 +630,7 @@ model Employee {
   @@unique([companyId, employeeNo])
   @@index([companyId, employmentStatus])
   @@index([branchId])
+  @@index([payGroupId])
 }
 
 model Attendance {
@@ -1291,4 +1306,197 @@ model SystemSetting {
   updatedAt  DateTime @updatedAt
 
   @@unique([companyId, key])
+}
+
+// ---------------------------------------------------------------------------
+// Inventory (DATA-MODEL §10, CLAUDE.md §16) — Stage 6
+// All stock changes flow through StockMovement (the authoritative ledger);
+// StockBalance is a derived, maintained projection.
+// ---------------------------------------------------------------------------
+
+model UnitOfMeasure {
+  id         String   @id @default(uuid())
+  companyId  String?
+  code       String
+  name       String
+  symbol     String
+  precision  Int      @default(2)
+  status     String   @default("ACTIVE")
+  createdAt  DateTime @default(now())
+
+  company    Company?  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  products   Product[] @relation("ProductBaseUnit")
+
+  @@unique([companyId, code])
+}
+
+model ProductCategory {
+  id                String   @id @default(uuid())
+  companyId         String
+  parentCategoryId  String?
+  code              String
+  name              String
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  parent  ProductCategory? @relation("CategoryTree", fields: [parentCategoryId], references: [id])
+  child   ProductCategory[] @relation("CategoryTree")
+  products Product[]
+
+  @@unique([companyId, code])
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  companyId     String
+  sku           String
+  barcode       String?
+  name          String
+  description   String?
+  categoryId    String?
+  productType   String   @default("STOCK") // STOCK | SERVICE | NON_STOCK | ASSET
+  baseUnitId    String?
+  trackBatch    Boolean  @default(false)
+  trackSerial   Boolean  @default(false)
+  inventoryItem Boolean  @default(true)
+  saleable      Boolean  @default(true)
+  purchasable   Boolean  @default(true)
+  standardCost  Decimal  @default(0) @db.Decimal(18, 4)
+  reorderLevel  Decimal  @default(0) @db.Decimal(18, 4)
+  reorderQty    Decimal  @default(0) @db.Decimal(18, 4)
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdById   String?
+  updatedById   String?
+
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  category    ProductCategory? @relation(fields: [categoryId], references: [id])
+  baseUnit    UnitOfMeasure?   @relation("ProductBaseUnit", fields: [baseUnitId], references: [id])
+  stockBalances StockBalance[]
+  movements     StockMovement[]
+  transferLines StockTransferLine[]
+  adjustmentLines StockAdjustmentLine[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, status])
+  @@index([companyId, categoryId])
+}
+
+model StockBalance {
+  id                  String   @id @default(uuid())
+  companyId           String
+  warehouseId         String
+  warehouseLocationId String?
+  productId           String
+  onHand              Decimal  @default(0) @db.Decimal(18, 4)
+  reserved            Decimal  @default(0) @db.Decimal(18, 4)
+  avgCost             Decimal  @default(0) @db.Decimal(18, 4)
+  updatedAt           DateTime @updatedAt
+
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  location  WarehouseLocation? @relation(fields: [warehouseLocationId], references: [id])
+  product   Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([warehouseId, warehouseLocationId, productId])
+  @@index([companyId, productId])
+}
+
+model StockMovement {
+  id                  String   @id @default(uuid())
+  companyId           String
+  branchId            String?
+  warehouseId         String
+  warehouseLocationId String?
+  productId           String
+  movementType        String // RECEIPT | ISSUE | TRANSFER_IN | TRANSFER_OUT | ADJUSTMENT_IN | ADJUSTMENT_OUT | RETURN_IN | RETURN_OUT
+  quantity            Decimal  @db.Decimal(18, 4)
+  unitCost            Decimal  @default(0) @db.Decimal(18, 4)
+  totalCost           Decimal  @default(0) @db.Decimal(18, 4)
+  batchNo             String?
+  serialNo            String?
+  referenceType       String?
+  referenceId         String?
+  referenceNo         String?
+  movementDate        DateTime @default(now())
+  postedAt            DateTime @default(now())
+  createdById         String?
+
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  location  WarehouseLocation? @relation(fields: [warehouseLocationId], references: [id])
+  product   Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, productId, movementDate])
+  @@index([companyId, warehouseId])
+  @@index([referenceType, referenceId])
+}
+
+model StockTransfer {
+  id              String   @id @default(uuid())
+  companyId       String
+  fromWarehouseId String
+  toWarehouseId   String
+  transferNo      String
+  transferDate    DateTime @default(now())
+  reason          String?
+  status          String   @default("DRAFT") // DRAFT | IN_TRANSIT | COMPLETED | CANCELLED
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  fromWarehouse Warehouse           @relation("TransfersFrom", fields: [fromWarehouseId], references: [id], onDelete: Restrict)
+  toWarehouse   Warehouse           @relation("TransfersTo", fields: [toWarehouseId], references: [id], onDelete: Restrict)
+  lines         StockTransferLine[]
+
+  @@unique([companyId, transferNo])
+}
+
+model StockTransferLine {
+  id             String  @id @default(uuid())
+  stockTransferId String
+  productId      String
+  quantity       Decimal @db.Decimal(18, 4)
+  unitId         String?
+
+  stockTransfer StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+}
+
+model StockAdjustment {
+  id            String   @id @default(uuid())
+  companyId     String
+  branchId      String?
+  warehouseId   String
+  adjustmentNo  String
+  reason        String
+  status        String   @default("DRAFT") // DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | POSTED | CANCELLED
+  workflowInstanceId String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse  Warehouse             @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  lines      StockAdjustmentLine[]
+
+  @@unique([companyId, adjustmentNo])
+}
+
+model StockAdjustmentLine {
+  id                String  @id @default(uuid())
+  stockAdjustmentId String
+  productId         String
+  systemQuantity    Decimal @db.Decimal(18, 4)
+  countedQuantity   Decimal @db.Decimal(18, 4)
+  differenceQuantity Decimal @db.Decimal(18, 4)
+  unitCost          Decimal @default(0) @db.Decimal(18, 4)
+  adjustmentValue   Decimal @default(0) @db.Decimal(18, 4)
+
+  stockAdjustment StockAdjustment @relation(fields: [stockAdjustmentId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
 }
