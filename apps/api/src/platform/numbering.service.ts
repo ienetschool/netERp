@@ -4,6 +4,7 @@ import { BusinessRuleError } from '../common/errors.js';
 
 export const DOCUMENT_TYPES = {
   SUPPLIER: 'SUPPLIER',
+  CUSTOMER: 'CUSTOMER',
   PURCHASE_REQUEST: 'PURCHASE_REQUEST',
   RFQ: 'RFQ',
   SUPPLIER_QUOTATION: 'SUPPLIER_QUOTATION',
@@ -27,6 +28,7 @@ export type DocumentType = (typeof DOCUMENT_TYPES)[keyof typeof DOCUMENT_TYPES];
 
 const PREFIXES: Record<string, string> = {
   SUPPLIER: 'SUP',
+  CUSTOMER: 'CUS',
   PURCHASE_REQUEST: 'PR',
   RFQ: 'RFQ',
   SUPPLIER_QUOTATION: 'SQ',
@@ -70,7 +72,10 @@ export class NumberingService {
     const fiscalYear = at.getUTCFullYear();
     const prefix = PREFIXES[documentType] ?? FALLBACK_PREFIX;
 
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`seq:${companyId}:${documentType}:${fiscalYear}`}))`;
+    // The lock function itself returns void, which Prisma $queryRaw cannot
+    // deserialize over a transaction-mode pooler — wrap it so the outer query
+    // yields a real boolean column.
+    await tx.$queryRaw`SELECT true AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${`seq:${companyId}:${documentType}:${fiscalYear}`}))) AS _lock`;
 
     const sequence = await tx.documentSequence.upsert({
       where: {

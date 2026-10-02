@@ -7,3 +7,4 @@ export * from './hr.js';
 export * from './payroll.js';
 export * from './procurement.js';
 export * from './inventory.js';
+export * from './sales.js';

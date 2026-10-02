@@ -77,7 +77,14 @@ export const NAVIGATION: NavItem[] = [
   {
     label: 'Sales',
     permission: 'sales.customer.view',
-    children: [{ label: 'Customers', href: '/sales/customers', permission: 'sales.customer.view' }],
+    children: [
+      { label: 'Customers', href: '/sales/customers', permission: 'sales.customer.view' },
+      { label: 'Quotations', href: '/sales/quotations', permission: 'sales.quotation.view' },
+      { label: 'Sales Orders', href: '/sales/orders', permission: 'sales.sales_order.view' },
+      { label: 'Deliveries', href: '/sales/deliveries', permission: 'sales.delivery.view' },
+      { label: 'Invoices', href: '/sales/invoices', permission: 'sales.invoice.view' },
+      { label: 'Receipts', href: '/sales/receipts', permission: 'sales.receipt.view' },
+    ],
   },
   {
     label: 'Accounting',

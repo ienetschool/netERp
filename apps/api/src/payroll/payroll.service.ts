@@ -784,7 +784,7 @@ export class PayrollService {
         where: { payrollRunId: run.id },
         data: { status: 'POSTED' },
       });
-      this.outbox.emit(
+      await this.outbox.emit(
         {
           eventType: 'payroll.run.posted',
           aggregateType: 'payroll_run',

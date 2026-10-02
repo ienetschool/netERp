@@ -1082,7 +1082,7 @@ export class ProcurementService {
         where: { id },
         data: { status: 'POSTED', postingDate: new Date() },
       });
-      this.outbox.emit(
+      await this.outbox.emit(
         {
           eventType: 'procurement.supplier_invoice.posted',
           aggregateType: 'supplier_invoice',

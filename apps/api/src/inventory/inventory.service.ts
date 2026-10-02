@@ -835,4 +835,66 @@ export class InventoryService {
       );
     }
   }
+
+  /**
+   * Stage 7 bridge: customer deliveries post ISSUE movements at the balance's
+   * weighted-average cost, inside the same transaction as the delivery
+   * (USER-FLOWS §12.3). Negative stock is never allowed on the sales path.
+   */
+  async recordDeliveryIssues(
+    tx: Tx,
+    data: {
+      companyId: string;
+      warehouseId: string;
+      deliveryId: string;
+      deliveryNo: string;
+      lines: Array<{
+        productId: string | null;
+        quantity: Prisma.Decimal;
+        warehouseLocationId?: string | null;
+        batchNo?: string | null;
+        serialNo?: string | null;
+      }>;
+      createdById: string | null;
+    },
+  ): Promise<void> {
+    for (const line of data.lines) {
+      if (!line.productId) continue;
+      // Default the issue location to the warehouse's deepest stock position
+      // for the product (deliveries rarely specify a bin explicitly).
+      let locationId = line.warehouseLocationId ?? null;
+      const balance = await tx.stockBalance.findFirst({
+        where: {
+          warehouseId: data.warehouseId,
+          productId: line.productId,
+          ...(locationId ? { warehouseLocationId: locationId } : {}),
+        },
+        orderBy: { onHand: 'desc' },
+      });
+      if (!locationId) {
+        locationId = balance?.warehouseLocationId ?? null;
+      }
+      // Stamp the movement with the balance's weighted-average cost so the
+      // ledger carries COGS per issue (avg cost is unchanged by outbound moves).
+      await this.applyMovement(
+        tx,
+        {
+          companyId: data.companyId,
+          warehouseId: data.warehouseId,
+          warehouseLocationId: locationId,
+          productId: line.productId,
+          movementType: 'ISSUE',
+          quantity: line.quantity.toString(),
+          unitCost: balance ? balance.avgCost.toString() : '0',
+          batchNo: line.batchNo ?? null,
+          serialNo: line.serialNo ?? null,
+          referenceType: 'delivery',
+          referenceId: data.deliveryId,
+          referenceNo: data.deliveryNo,
+          createdById: data.createdById,
+        },
+        { allowNegative: false },
+      );
+    }
+  }
 }

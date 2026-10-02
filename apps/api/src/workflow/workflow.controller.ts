@@ -8,6 +8,7 @@ import { OutboxService } from '../platform/outbox.service.js';
 import { HrService } from '../hr/hr.service.js';
 import { PayrollService } from '../payroll/payroll.service.js';
 import { ProcurementService } from '../procurement/procurement.service.js';
+import { SalesService } from '../sales/sales.service.js';
 import { ValidationError, NotFoundError } from '../common/errors.js';
 import { getRequestId } from '../common/api-envelope.interceptor.js';
 import {
@@ -42,6 +43,7 @@ export class WorkflowController {
     private readonly hr: HrService,
     private readonly payroll: PayrollService,
     private readonly procurement: ProcurementService,
+    private readonly sales: SalesService,
   ) {}
 
   // ---- Definitions ---------------------------------------------------------
@@ -224,6 +226,18 @@ export class WorkflowController {
       );
     } else if (result.entityType === 'purchase_order') {
       await this.procurement.applyPurchaseOrderOutcome(
+        result.instanceId,
+        result.instanceStatus,
+        principal.userId,
+      );
+    } else if (result.entityType === 'sales_quotation') {
+      await this.sales.applyQuotationOutcome(
+        result.instanceId,
+        result.instanceStatus,
+        principal.userId,
+      );
+    } else if (result.entityType === 'sales_order') {
+      await this.sales.applySalesOrderOutcome(
         result.instanceId,
         result.instanceStatus,
         principal.userId,

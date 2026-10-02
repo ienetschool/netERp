@@ -1177,12 +1177,130 @@ async function main(): Promise<void> {
     warehouseId: org.warehouseId,
   });
   console.log('Inventory data ok');
+  await ensureSalesData(roles, {
+    companyId: org.companyId,
+    branchId: org.branchId,
+  });
+  console.log('Sales data ok');
   console.log(
     'Seed complete. Users: admin@demo.local / manager@demo.local / finance@demo.local (password: Admin123!)',
   );
   console.log(
-    'Demo workflows: purchase_request and leave_request to BRANCH_MANAGER; payroll_run to FINANCE_MANAGER; stock_adjustment to INVENTORY_MANAGER.',
+    'Demo workflows: purchase_request and leave_request to BRANCH_MANAGER; payroll_run to FINANCE_MANAGER; stock_adjustment to INVENTORY_MANAGER; sales_quotation and sales_order to SALES_MANAGER.',
   );
+}
+
+/**
+ * Stage 7 sales seed: one demo customer plus quotation/order approval
+ * workflows (DRAFT → PENDING_APPROVAL → APPROVED/REJECTED, approver
+ * SALES_MANAGER). Idempotent.
+ */
+async function ensureSalesData(
+  roleIds: Map<string, string>,
+  org: { companyId: string; branchId: string },
+): Promise<void> {
+  const currency = await prisma.currency.findUnique({ where: { code: 'USD' } });
+  if (!currency) throw new Error('USD currency missing after seed');
+
+  const existingCustomer = await prisma.customer.findFirst({
+    where: { companyId: org.companyId, customerNo: 'CUS-DEMO-001' },
+  });
+  if (!existingCustomer) {
+    await prisma.customer.create({
+      data: {
+        companyId: org.companyId,
+        branchId: org.branchId,
+        customerNo: 'CUS-DEMO-001',
+        legalName: 'Demo Customer LLC',
+        displayName: 'Demo Customer',
+        email: 'sales@democustomer.example',
+        phone: '+1-555-0100',
+        address: '100 Market Street, Springfield',
+        currencyId: currency.id,
+        creditLimit: '5000',
+      },
+    });
+  }
+
+  const approverRoleId = roleIds.get('SALES_MANAGER');
+  if (!approverRoleId) throw new Error('SALES_MANAGER role missing after seed');
+
+  const salesWorkflows: Array<{ entityType: string; name: string }> = [
+    { entityType: 'sales_quotation', name: 'Sales quotation approval' },
+    { entityType: 'sales_order', name: 'Sales order approval' },
+  ];
+  for (const wf of salesWorkflows) {
+    const existing = await prisma.workflowDefinition.findFirst({
+      where: { companyId: org.companyId, entityType: wf.entityType, version: 1 },
+    });
+    if (existing) continue;
+    const definition = await prisma.workflowDefinition.create({
+      data: {
+        companyId: org.companyId,
+        name: wf.name,
+        entityType: wf.entityType,
+        version: 1,
+        status: 'ACTIVE',
+      },
+    });
+    await prisma.workflowState.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          code: 'DRAFT',
+          name: 'Draft',
+          isInitial: true,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'PENDING_APPROVAL',
+          name: 'Pending Approval',
+          isInitial: false,
+          isTerminal: false,
+        },
+        {
+          definitionId: definition.id,
+          code: 'APPROVED',
+          name: 'Approved',
+          isInitial: false,
+          isTerminal: true,
+        },
+        {
+          definitionId: definition.id,
+          code: 'REJECTED',
+          name: 'Rejected',
+          isInitial: false,
+          isTerminal: true,
+        },
+      ],
+    });
+    const states = await prisma.workflowState.findMany({ where: { definitionId: definition.id } });
+    const byCode = new Map(states.map((s) => [s.code, s.id]));
+    await prisma.workflowTransition.createMany({
+      data: [
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('DRAFT') as string,
+          toStateId: byCode.get('PENDING_APPROVAL') as string,
+          action: 'submit',
+          condition: { approverType: 'ROLE', approverId: approverRoleId },
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('APPROVED') as string,
+          action: 'approve',
+        },
+        {
+          definitionId: definition.id,
+          fromStateId: byCode.get('PENDING_APPROVAL') as string,
+          toStateId: byCode.get('REJECTED') as string,
+          action: 'reject',
+        },
+      ],
+    });
+  }
 }
 
 main()
