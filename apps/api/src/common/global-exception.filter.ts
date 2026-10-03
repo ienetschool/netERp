@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ZodError } from 'zod';
 import type { Request, Response } from 'express';
 import { DomainError } from './errors.js';
 import { getRequestId } from './api-envelope.interceptor.js';
@@ -34,6 +35,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       code = exception.code;
       message = exception.message;
       details = exception.details;
+    } else if (exception instanceof ZodError) {
+      // Controller-level schema validation: a rejected request body is a
+      // client error, not an internal failure (CLAUDE.md §48).
+      status = HttpStatus.BAD_REQUEST;
+      code = 'VALIDATION_ERROR';
+      message = 'Request validation failed';
+      details = {
+        issues: exception.issues.map((i) => ({
+          path: i.path.join('.'),
+          message: i.message,
+        })),
+      };
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       const body = exception.getResponse();

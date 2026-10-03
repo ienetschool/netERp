@@ -95,6 +95,20 @@ export const NAVIGATION: NavItem[] = [
       { label: 'GL Reports', href: '/accounting/reports', permission: 'accounting.journal.view' },
     ],
   },
+  {
+    label: 'Office',
+    permission: 'office.visitor.view',
+    children: [
+      { label: 'Visitors', href: '/office/visitors', permission: 'office.visitor.view' },
+      { label: 'Calls', href: '/office/calls', permission: 'office.call.view' },
+      {
+        label: 'Correspondence',
+        href: '/office/correspondence',
+        permission: 'office.correspondence.view',
+      },
+      { label: 'File Room', href: '/office/files', permission: 'office.file_room.view' },
+    ],
+  },
   { label: 'Documents', href: '/documents', permission: 'documents.document.view' },
   {
     label: 'Administration',

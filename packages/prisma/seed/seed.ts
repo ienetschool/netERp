@@ -170,6 +170,12 @@ async function ensureRoles(permissions: Map<string, string>): Promise<Map<string
       include: (m) => ['office', 'communication'].includes(m),
     },
     {
+      code: 'FRONT_OFFICE_CLERK',
+      name: 'Front Office Clerk',
+      description: 'Stage 9 demo user for visitors, calls, correspondence, and file room',
+      include: (m) => ['office', 'communication'].includes(m),
+    },
+    {
       code: 'DOCUMENT_OFFICER',
       name: 'Document Officer',
       description: 'Document and correspondence management',
@@ -423,6 +429,32 @@ async function ensureUsers(
         userId: finance.id,
         roleId: financeManagerRoleId,
         companyId: org.companyId,
+      },
+    });
+  }
+
+  // Stage 9 demo user: front-office clerk exercising the office module.
+  const clerk = await prisma.user.upsert({
+    where: { email: 'office@demo.local' },
+    update: {},
+    create: {
+      email: 'office@demo.local',
+      displayName: 'Front Office Clerk',
+      passwordHash,
+    },
+  });
+  const clerkRoleId = roleIds.get('FRONT_OFFICE_CLERK');
+  if (!clerkRoleId) throw new Error('FRONT_OFFICE_CLERK role missing after seed');
+  const clerkAssignment = await prisma.userRoleAssignment.findFirst({
+    where: { userId: clerk.id, roleId: clerkRoleId },
+  });
+  if (!clerkAssignment) {
+    await prisma.userRoleAssignment.create({
+      data: {
+        userId: clerk.id,
+        roleId: clerkRoleId,
+        companyId: org.companyId,
+        branchId: org.branchId,
       },
     });
   }
@@ -1184,6 +1216,12 @@ async function main(): Promise<void> {
   console.log('Sales data ok');
   await ensureAccountingData(roles, { companyId: org.companyId });
   console.log('Accounting data ok');
+  await ensureOfficeData(roles, {
+    companyId: org.companyId,
+    branchId: org.branchId,
+    departmentId: org.departmentId,
+  });
+  console.log('Office data ok');
   console.log(
     'Seed complete. Users: admin@demo.local / manager@demo.local / finance@demo.local (password: Admin123!)',
   );
@@ -1358,6 +1396,148 @@ async function ensureSalesData(
           fromStateId: byCode.get('PENDING_APPROVAL') as string,
           toStateId: byCode.get('REJECTED') as string,
           action: 'reject',
+        },
+      ],
+    });
+  }
+}
+
+/**
+ * Stage 9 office seed: one record per office sub-domain so the module is
+ * immediately explorable (visitors, call log, correspondence, file room).
+ * Idempotent on the document numbers; roles granted automatically via
+ * ensureRoles (RECEPTIONIST / FRONT_OFFICE_CLERK already include office).
+ */
+async function ensureOfficeData(
+  _roleIds: Map<string, string>,
+  org: { companyId: string; branchId: string; departmentId: string },
+): Promise<void> {
+  // Visitors.
+  await prisma.visitor.upsert({
+    where: { companyId_visitorNo: { companyId: org.companyId, visitorNo: 'VIS-DEMO-001' } },
+    update: {},
+    create: {
+      companyId: org.companyId,
+      branchId: org.branchId,
+      visitorNo: 'VIS-DEMO-001',
+      name: 'Fatima Zahra',
+      companyName: 'Zahra Trading LLC',
+      phone: '+1-555-0142',
+      email: 'fatima@zahratrading.example',
+      purpose: 'Supplier meeting with procurement',
+      status: 'CHECKED_IN',
+      checkInAt: new Date(),
+      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+    },
+  });
+  await prisma.visitor.upsert({
+    where: { companyId_visitorNo: { companyId: org.companyId, visitorNo: 'VIS-DEMO-002' } },
+    update: {},
+    create: {
+      companyId: org.companyId,
+      branchId: org.branchId,
+      visitorNo: 'VIS-DEMO-002',
+      name: 'Marcus Webb',
+      companyName: 'Webb Consulting',
+      purpose: 'Quarterly audit review',
+      status: 'EXPECTED',
+      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+    },
+  });
+
+  // Call log (CallLog has no document number in DATA-MODEL §22; dedupe on
+  // caller + subject being present at all).
+  const existingCall = await prisma.callLog.findFirst({
+    where: { companyId: org.companyId, callerName: 'Priya Sharma', subject: 'Delivery window confirmation for PO' },
+  });
+  if (!existingCall) {
+    await prisma.callLog.create({
+      data: {
+        companyId: org.companyId,
+        branchId: org.branchId,
+        callerName: 'Priya Sharma',
+        callerPhone: '+1-555-0199',
+        subject: 'Delivery window confirmation for PO',
+        notes: 'Requested afternoon delivery; warehouse confirmed.',
+        callTime: new Date(),
+        direction: 'INBOUND',
+        status: 'COMPLETED',
+        createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+      },
+    });
+  }
+
+  // Correspondence.
+  await prisma.correspondence.upsert({
+    where: {
+      companyId_correspondenceNo: { companyId: org.companyId, correspondenceNo: 'CORR-DEMO-001' },
+    },
+    update: {},
+    create: {
+      companyId: org.companyId,
+      branchId: org.branchId,
+      correspondenceNo: 'CORR-DEMO-001',
+      direction: 'INCOMING',
+      correspondenceType: 'LETTER',
+      sender: 'City Revenue Authority',
+      recipient: 'Moves Fast Corp',
+      subject: 'Quarterly tax filing reminder',
+      receivedAt: new Date(),
+      status: 'OPEN',
+      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+    },
+  });
+
+  // File room: one AVAILABLE and one ISSUED file with movement history.
+  const adminUser = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } });
+  const managerUser = await prisma.user.findUniqueOrThrow({ where: { email: 'manager@demo.local' } });
+  await prisma.fileRecord.upsert({
+    where: { companyId_fileNo: { companyId: org.companyId, fileNo: 'FILE-DEMO-001' } },
+    update: {},
+    create: {
+      companyId: org.companyId,
+      branchId: org.branchId,
+      fileNo: 'FILE-DEMO-001',
+      title: 'Employment contracts — Operations',
+      category: 'HR',
+      locationCode: 'CAB-A-02',
+      status: 'AVAILABLE',
+      notes: 'Original signed copies.',
+      createdById: adminUser.id,
+    },
+  });
+  const issuedFile = await prisma.fileRecord.upsert({
+    where: { companyId_fileNo: { companyId: org.companyId, fileNo: 'FILE-DEMO-002' } },
+    update: {},
+    create: {
+      companyId: org.companyId,
+      branchId: org.branchId,
+      fileNo: 'FILE-DEMO-002',
+      title: 'Vendor agreements 2026',
+      category: 'PROCUREMENT',
+      locationCode: 'CAB-B-01',
+      status: 'ISSUED',
+      issuedToEmployeeId: managerUser.id,
+      issuedAt: new Date(),
+      createdById: adminUser.id,
+    },
+  });
+  const movements = await prisma.fileMovement.count({ where: { fileId: issuedFile.id } });
+  if (movements === 0) {
+    await prisma.fileMovement.createMany({
+      data: [
+        {
+          fileId: issuedFile.id,
+          action: 'CREATED',
+          actorUserId: adminUser.id,
+          note: 'Registered',
+        },
+        {
+          fileId: issuedFile.id,
+          action: 'ISSUED',
+          actorUserId: adminUser.id,
+          issuedToEmployeeId: managerUser.id,
+          note: 'For contract review',
         },
       ],
     });

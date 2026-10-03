@@ -59,6 +59,10 @@ model Company {
   customerInvoices  CustomerInvoice[]
   customerReceipts  CustomerReceipt[]
   journalEntries    JournalEntry[]
+  visitors          Visitor[]
+  callLogs          CallLog[]
+  correspondences   Correspondence[]
+  fileRecords       FileRecord[]
 
   @@index([status])
 }
@@ -1876,4 +1880,120 @@ model JournalLine {
 
   @@index([journalId])
   @@index([accountId])
+}
+
+// ---------------------------------------------------------------------------
+// Office (DATA-MODEL §22; PRD Stage 9)
+// ---------------------------------------------------------------------------
+
+model Visitor {
+  id             String    @id @default(uuid())
+  companyId      String
+  branchId       String?
+  visitorNo      String
+  name           String
+  companyName    String?
+  phone          String?
+  email          String?
+  hostEmployeeId String?
+  purpose        String?
+  checkInAt      DateTime?
+  checkOutAt     DateTime?
+  status         String    @default("EXPECTED") // EXPECTED | CHECKED_IN | CHECKED_OUT | CANCELLED
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, visitorNo])
+  @@index([companyId, status])
+  @@index([companyId, checkInAt])
+}
+
+model CallLog {
+  id                  String    @id @default(uuid())
+  companyId           String
+  branchId            String?
+  callerName          String
+  callerPhone         String?
+  recipientEmployeeId String?
+  subject             String
+  notes               String?
+  callTime            DateTime  @default(now())
+  direction           String    @default("INBOUND") // INBOUND | OUTBOUND
+  status              String    @default("OPEN") // OPEN | COMPLETED
+  createdById         String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, callTime])
+  @@index([companyId, status])
+}
+
+model Correspondence {
+  id                 String    @id @default(uuid())
+  companyId          String
+  branchId           String?
+  correspondenceNo   String
+  direction          String // INCOMING | OUTGOING | INTERNAL
+  correspondenceType String    @default("LETTER") // LETTER | EMAIL | FAX | PARCEL | OTHER
+  sender             String
+  recipient          String
+  subject            String
+  receivedAt         DateTime?
+  sentAt             DateTime?
+  assignedTo         String?
+  status             String    @default("OPEN") // OPEN | IN_PROGRESS | CLOSED
+  documentId         String?
+  createdById        String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, correspondenceNo])
+  @@index([companyId, status])
+  @@index([companyId, direction])
+}
+
+model FileRecord {
+  id                 String    @id @default(uuid())
+  companyId          String
+  branchId           String?
+  fileNo             String
+  title              String
+  category           String?
+  locationCode       String?
+  status             String    @default("AVAILABLE") // AVAILABLE | ISSUED | ARCHIVED
+  issuedToEmployeeId String?
+  issuedAt           DateTime?
+  dueAt              DateTime?
+  returnedAt         DateTime?
+  notes              String?
+  createdById        String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  movements FileMovement[]
+
+  @@unique([companyId, fileNo])
+  @@index([companyId, status])
+}
+
+model FileMovement {
+  id                 String   @id @default(uuid())
+  fileId             String
+  action             String // CREATED | ISSUED | RETURNED | ARCHIVED
+  actorUserId        String
+  issuedToEmployeeId String?
+  note               String?
+  at                 DateTime @default(now())
+
+  file FileRecord @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId, at])
 }

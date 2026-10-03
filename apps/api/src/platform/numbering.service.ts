@@ -22,6 +22,10 @@ export const DOCUMENT_TYPES = {
   STOCK_TRANSFER: 'STOCK_TRANSFER',
   STOCK_ADJUSTMENT: 'STOCK_ADJUSTMENT',
   ASSET: 'ASSET',
+  VISITOR: 'VISITOR',
+  CALL: 'CALL',
+  CORRESPONDENCE: 'CORRESPONDENCE',
+  FILE: 'FILE',
 } as const;
 
 export type DocumentType = (typeof DOCUMENT_TYPES)[keyof typeof DOCUMENT_TYPES];
@@ -46,6 +50,10 @@ const PREFIXES: Record<string, string> = {
   STOCK_TRANSFER: 'STR',
   STOCK_ADJUSTMENT: 'ADJ',
   ASSET: 'FA',
+  VISITOR: 'VIS',
+  CALL: 'CALL',
+  CORRESPONDENCE: 'CORR',
+  FILE: 'FILE',
 };
 
 const FALLBACK_PREFIX = 'DOC';
