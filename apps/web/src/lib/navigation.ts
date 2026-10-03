@@ -90,7 +90,9 @@ export const NAVIGATION: NavItem[] = [
     label: 'Accounting',
     permission: 'accounting.journal.view',
     children: [
+      { label: 'Accounts', href: '/accounting/accounts', permission: 'accounting.account.view' },
       { label: 'Journals', href: '/accounting/journals', permission: 'accounting.journal.view' },
+      { label: 'GL Reports', href: '/accounting/reports', permission: 'accounting.journal.view' },
     ],
   },
   { label: 'Documents', href: '/documents', permission: 'documents.document.view' },

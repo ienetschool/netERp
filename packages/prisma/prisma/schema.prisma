@@ -58,6 +58,7 @@ model Company {
   deliveries        Delivery[]
   customerInvoices  CustomerInvoice[]
   customerReceipts  CustomerReceipt[]
+  journalEntries    JournalEntry[]
 
   @@index([status])
 }
@@ -336,7 +337,8 @@ model FinancialPeriod {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  journalEntries JournalEntry[]
 
   @@unique([companyId, fiscalYear, periodNo])
   @@index([companyId, status])
@@ -357,9 +359,10 @@ model Account {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  parent   Account?  @relation("AccountTree", fields: [parentId], references: [id])
-  children Account[] @relation("AccountTree")
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  parent       Account?      @relation("AccountTree", fields: [parentId], references: [id])
+  children     Account[]     @relation("AccountTree")
+  journalLines JournalLine[]
 
   @@unique([companyId, accountCode])
   @@index([companyId, accountType])
@@ -1400,6 +1403,7 @@ model Product {
   salesOrderLines SalesOrderLine[]      @relation("OrderLines")
   deliveryLines   DeliveryLine[]        @relation("DeliveryLines")
   invoiceLines    CustomerInvoiceLine[] @relation("InvoiceLines")
+  journalLines    JournalLine[]         @relation("JournalLines")
 
   @@unique([companyId, sku])
   @@index([companyId, status])
@@ -1797,7 +1801,6 @@ model CustomerReceipt {
   @@unique([companyId, receiptNo])
   @@index([companyId, customerId])
 }
-
 model ReceiptAllocation {
   id              String  @id @default(uuid())
   receiptId       String
@@ -1809,4 +1812,68 @@ model ReceiptAllocation {
 
   @@index([receiptId])
   @@index([invoiceId])
+}
+
+// ---------------------------------------------------------------------------
+// Accounting (DATA-MODEL §13) — journals, GL
+// ---------------------------------------------------------------------------
+
+model JournalEntry {
+  id                  String    @id @default(uuid())
+  companyId           String
+  branchId            String?
+  journalNo           String
+  journalType         String    @default("GENERAL") // GENERAL | SALES | PURCHASE | CASH | BANK | PAYROLL | INVENTORY | ASSET | TAX | ADJUSTMENT | REVERSAL
+  journalDate         DateTime  @db.Date
+  financialPeriodId   String?
+  sourceType          String?
+  sourceId            String?
+  sourceDocumentNo    String?
+  description         String?
+  status              String    @default("DRAFT") // DRAFT | PENDING_APPROVAL | APPROVED | POSTED | REVERSED | CANCELLED
+  workflowInstanceId  String?   @unique
+  postedById          String?
+  postedAt            DateTime?
+  reversedByJournalId String?
+  createdById         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  financialPeriod FinancialPeriod? @relation(fields: [financialPeriodId], references: [id])
+  reversedBy      JournalEntry?    @relation("JournalReversal", fields: [reversedByJournalId], references: [id])
+  reverses        JournalEntry[]   @relation("JournalReversal")
+  lines           JournalLine[]
+
+  @@unique([companyId, journalNo])
+  @@index([companyId, status])
+  @@index([companyId, journalDate])
+  @@index([sourceType, sourceId])
+}
+
+model JournalLine {
+  id            String   @id @default(uuid())
+  journalId     String
+  lineNo        Int
+  accountId     String
+  description   String?
+  debit         Decimal  @default(0) @db.Decimal(18, 2)
+  credit        Decimal  @default(0) @db.Decimal(18, 2)
+  currencyId    String?
+  exchangeRate  Decimal? @db.Decimal(18, 6)
+  foreignDebit  Decimal? @db.Decimal(18, 2)
+  foreignCredit Decimal? @db.Decimal(18, 2)
+  customerId    String?
+  supplierId    String?
+  employeeId    String?
+  productId     String?
+  departmentId  String?
+  costCenterId  String?
+
+  journal JournalEntry @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  product Product?     @relation("JournalLines", fields: [productId], references: [id])
+
+  @@index([journalId])
+  @@index([accountId])
 }

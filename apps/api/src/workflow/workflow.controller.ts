@@ -9,6 +9,7 @@ import { HrService } from '../hr/hr.service.js';
 import { PayrollService } from '../payroll/payroll.service.js';
 import { ProcurementService } from '../procurement/procurement.service.js';
 import { SalesService } from '../sales/sales.service.js';
+import { AccountingService } from '../accounting/accounting.service.js';
 import { ValidationError, NotFoundError } from '../common/errors.js';
 import { getRequestId } from '../common/api-envelope.interceptor.js';
 import {
@@ -44,6 +45,7 @@ export class WorkflowController {
     private readonly payroll: PayrollService,
     private readonly procurement: ProcurementService,
     private readonly sales: SalesService,
+    private readonly accounting: AccountingService,
   ) {}
 
   // ---- Definitions ---------------------------------------------------------
@@ -238,6 +240,12 @@ export class WorkflowController {
       );
     } else if (result.entityType === 'sales_order') {
       await this.sales.applySalesOrderOutcome(
+        result.instanceId,
+        result.instanceStatus,
+        principal.userId,
+      );
+    } else if (result.entityType === 'journal_entry') {
+      await this.accounting.applyJournalOutcome(
         result.instanceId,
         result.instanceStatus,
         principal.userId,

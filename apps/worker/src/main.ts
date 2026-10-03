@@ -6,6 +6,7 @@ import { pino } from 'pino';
 import { OutboxRelay } from './outbox-relay.js';
 import type { OutboxJobData } from './notification-delivery.js';
 import { NotificationDeliveryProcessor } from './notification-delivery.js';
+import { ACCOUNTING_EVENT_TYPES, AccountingIngestProcessor } from './accounting-ingest.js';
 import { QUEUE_NOTIFICATIONS, createWorker } from './queue.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL ?? 'info', base: { service: 'erp-worker' } });
@@ -16,10 +17,15 @@ async function main(): Promise<void> {
 
   const relay = new OutboxRelay(prisma);
   const processor = new NotificationDeliveryProcessor(prisma);
+  const accountingProcessor = new AccountingIngestProcessor(prisma);
 
-  const notificationWorker = createWorker(QUEUE_NOTIFICATIONS, (job) =>
-    processor.process(job as Parameters<typeof processor.process>[0] as never),
-  );
+  const notificationWorker = createWorker(QUEUE_NOTIFICATIONS, (job) => {
+    const data = job.data as unknown as { eventType?: string };
+    if (data?.eventType && ACCOUNTING_EVENT_TYPES.has(data.eventType)) {
+      return accountingProcessor.process(job as never);
+    }
+    return processor.process(job as Parameters<typeof processor.process>[0] as never);
+  });
 
   const pollInterval = Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 2000);
   const state = { running: true };

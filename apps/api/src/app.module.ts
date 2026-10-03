@@ -33,6 +33,8 @@ import { InventoryController } from './inventory/inventory.controller.js';
 import { InventoryService } from './inventory/inventory.service.js';
 import { SalesController } from './sales/sales.controller.js';
 import { SalesService } from './sales/sales.service.js';
+import { AccountingController } from './accounting/accounting.controller.js';
+import { AccountingService } from './accounting/accounting.service.js';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
@@ -74,6 +76,7 @@ import { JwtModule } from '@nestjs/jwt';
     ProcurementController,
     InventoryController,
     SalesController,
+    AccountingController,
   ],
   providers: [
     AuthService,
@@ -89,6 +92,7 @@ import { JwtModule } from '@nestjs/jwt';
     ProcurementService,
     InventoryService,
     SalesService,
+    AccountingService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ApiEnvelopeInterceptor },
