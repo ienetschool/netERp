@@ -21,7 +21,7 @@ async function main(): Promise<void> {
 
   const notificationWorker = createWorker(QUEUE_NOTIFICATIONS, (job) => {
     const data = job.data as unknown as { eventType?: string };
-    if (data?.eventType && ACCOUNTING_EVENT_TYPES.has(data.eventType)) {
+    if (data.eventType && ACCOUNTING_EVENT_TYPES.has(data.eventType)) {
       return accountingProcessor.process(job as never);
     }
     return processor.process(job as Parameters<typeof processor.process>[0] as never);

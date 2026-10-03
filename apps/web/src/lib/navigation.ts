@@ -109,6 +109,13 @@ export const NAVIGATION: NavItem[] = [
       { label: 'File Room', href: '/office/files', permission: 'office.file_room.view' },
     ],
   },
+  {
+    label: 'Communication',
+    permission: 'communication.chat.view',
+    children: [
+      { label: 'Chat', href: '/communication/chat', permission: 'communication.chat.view' },
+    ],
+  },
   { label: 'Documents', href: '/documents', permission: 'documents.document.view' },
   {
     label: 'Administration',

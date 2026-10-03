@@ -73,13 +73,13 @@ export default function DeliveriesPage() {
     queryKey: ['warehouses-options'],
     queryFn: () =>
       api.get<{ items?: WarehouseOption[]; rows?: WarehouseOption[] }>(
-        '/admin/warehouses?page=1&pageSize=50',
+        '/warehouses?page=1&pageSize=50',
       ),
   });
 
   const companiesQuery = useQuery({
     queryKey: ['companies-options'],
-    queryFn: () => api.get<CompanyOption[]>('/admin/companies'),
+    queryFn: () => api.get<CompanyOption[]>('/companies'),
   });
 
   const createMutation = useMutation({

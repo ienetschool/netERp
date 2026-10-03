@@ -59,7 +59,7 @@ export default function StockPage() {
     queryKey: ['warehouses-options'],
     queryFn: () =>
       api.get<{ rows: Array<{ id: string; code: string; name: string }>; total: number }>(
-        '/admin/warehouses?page=1&pageSize=50',
+        '/warehouses?page=1&pageSize=50',
       ),
   });
 

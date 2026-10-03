@@ -55,7 +55,7 @@ export default function QuotationsPage() {
 
   const companiesQuery = useQuery({
     queryKey: ['companies-options'],
-    queryFn: () => api.get<CompanyOption[]>('/admin/companies'),
+    queryFn: () => api.get<CompanyOption[]>('/companies'),
   });
 
   const customersQuery = useQuery({

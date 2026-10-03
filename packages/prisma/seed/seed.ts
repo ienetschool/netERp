@@ -223,7 +223,9 @@ async function ensureRoles(permissions: Map<string, string>): Promise<Map<string
       if (def.include(module ?? '', resource ?? '', action ?? ''))
         rows.push({ roleId: role.id, permissionId });
     }
-    console.log(`[seed] ensureRoles ${roleIdx}/${roleDefs.length} ${def.code} -> ${rows.length} perms`);
+    console.log(
+      `[seed] ensureRoles ${roleIdx}/${roleDefs.length} ${def.code} -> ${rows.length} perms`,
+    );
     if (rows.length > 0) {
       await prisma.rolePermission.createMany({
         data: rows,
@@ -1222,6 +1224,8 @@ async function main(): Promise<void> {
     departmentId: org.departmentId,
   });
   console.log('Office data ok');
+  await ensureCommunicationData({ companyId: org.companyId });
+  console.log('Communication data ok');
   console.log(
     'Seed complete. Users: admin@demo.local / manager@demo.local / finance@demo.local (password: Admin123!)',
   );
@@ -1256,10 +1260,34 @@ async function ensureAccountingData(
   });
   await prisma.workflowState.createMany({
     data: [
-      { definitionId: definition.id, code: 'DRAFT', name: 'Draft', isInitial: true, isTerminal: false },
-      { definitionId: definition.id, code: 'PENDING_APPROVAL', name: 'Pending Approval', isInitial: false, isTerminal: false },
-      { definitionId: definition.id, code: 'APPROVED', name: 'Approved', isInitial: false, isTerminal: true },
-      { definitionId: definition.id, code: 'REJECTED', name: 'Rejected', isInitial: false, isTerminal: true },
+      {
+        definitionId: definition.id,
+        code: 'DRAFT',
+        name: 'Draft',
+        isInitial: true,
+        isTerminal: false,
+      },
+      {
+        definitionId: definition.id,
+        code: 'PENDING_APPROVAL',
+        name: 'Pending Approval',
+        isInitial: false,
+        isTerminal: false,
+      },
+      {
+        definitionId: definition.id,
+        code: 'APPROVED',
+        name: 'Approved',
+        isInitial: false,
+        isTerminal: true,
+      },
+      {
+        definitionId: definition.id,
+        code: 'REJECTED',
+        name: 'Rejected',
+        isInitial: false,
+        isTerminal: true,
+      },
     ],
   });
   const states = await prisma.workflowState.findMany({ where: { definitionId: definition.id } });
@@ -1427,7 +1455,8 @@ async function ensureOfficeData(
       purpose: 'Supplier meeting with procurement',
       status: 'CHECKED_IN',
       checkInAt: new Date(),
-      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } }))
+        .id,
     },
   });
   await prisma.visitor.upsert({
@@ -1441,14 +1470,19 @@ async function ensureOfficeData(
       companyName: 'Webb Consulting',
       purpose: 'Quarterly audit review',
       status: 'EXPECTED',
-      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } }))
+        .id,
     },
   });
 
   // Call log (CallLog has no document number in DATA-MODEL §22; dedupe on
   // caller + subject being present at all).
   const existingCall = await prisma.callLog.findFirst({
-    where: { companyId: org.companyId, callerName: 'Priya Sharma', subject: 'Delivery window confirmation for PO' },
+    where: {
+      companyId: org.companyId,
+      callerName: 'Priya Sharma',
+      subject: 'Delivery window confirmation for PO',
+    },
   });
   if (!existingCall) {
     await prisma.callLog.create({
@@ -1462,7 +1496,8 @@ async function ensureOfficeData(
         callTime: new Date(),
         direction: 'INBOUND',
         status: 'COMPLETED',
-        createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+        createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } }))
+          .id,
       },
     });
   }
@@ -1484,13 +1519,16 @@ async function ensureOfficeData(
       subject: 'Quarterly tax filing reminder',
       receivedAt: new Date(),
       status: 'OPEN',
-      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } })).id,
+      createdById: (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } }))
+        .id,
     },
   });
 
   // File room: one AVAILABLE and one ISSUED file with movement history.
   const adminUser = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } });
-  const managerUser = await prisma.user.findUniqueOrThrow({ where: { email: 'manager@demo.local' } });
+  const managerUser = await prisma.user.findUniqueOrThrow({
+    where: { email: 'manager@demo.local' },
+  });
   await prisma.fileRecord.upsert({
     where: { companyId_fileNo: { companyId: org.companyId, fileNo: 'FILE-DEMO-001' } },
     update: {},
@@ -1541,6 +1579,100 @@ async function ensureOfficeData(
         },
       ],
     });
+  }
+}
+
+/**
+ * Stage 10 communication seed: a direct chat and a group chat so the chat
+ * surface has live history on first load (DATA-MODEL §22, USER-FLOWS §19.1).
+ * Idempotent: conversations are matched before anything is written.
+ */
+async function ensureCommunicationData(org: { companyId: string }): Promise<void> {
+  const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } });
+  const manager = await prisma.user.findUniqueOrThrow({ where: { email: 'manager@demo.local' } });
+  const clerk = await prisma.user.findUniqueOrThrow({ where: { email: 'office@demo.local' } });
+
+  const bothParties = (a: string, b: string) =>
+    [{ participants: { some: { userId: a } } }, { participants: { some: { userId: b } } }] as const;
+
+  const direct = await prisma.conversation.findFirst({
+    where: {
+      companyId: org.companyId,
+      type: 'DIRECT',
+      AND: [...bothParties(admin.id, manager.id)],
+    },
+    select: { id: true },
+  });
+  if (!direct) {
+    const created = await prisma.conversation.create({
+      data: {
+        companyId: org.companyId,
+        type: 'DIRECT',
+        createdById: admin.id,
+        lastMessageAt: new Date(),
+        participants: {
+          create: [
+            { userId: admin.id, role: 'OWNER' },
+            { userId: manager.id, role: 'MEMBER' },
+          ],
+        },
+        messages: {
+          create: [
+            {
+              senderUserId: admin.id,
+              messageType: 'TEXT',
+              content: 'Please review the quarter-end pack before the board meeting.',
+            },
+            {
+              senderUserId: manager.id,
+              messageType: 'TEXT',
+              content: 'On it — sales figures and the AR ageing look healthy so far.',
+            },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    console.log(`[seed] direct chat ${created.id} created`);
+  }
+
+  const group = await prisma.conversation.findFirst({
+    where: { companyId: org.companyId, type: 'GROUP', name: 'Operations' },
+    select: { id: true },
+  });
+  if (!group) {
+    const created = await prisma.conversation.create({
+      data: {
+        companyId: org.companyId,
+        type: 'GROUP',
+        name: 'Operations',
+        createdById: admin.id,
+        lastMessageAt: new Date(),
+        participants: {
+          create: [
+            { userId: admin.id, role: 'OWNER' },
+            { userId: manager.id, role: 'MEMBER' },
+            { userId: clerk.id, role: 'MEMBER' },
+          ],
+        },
+        messages: {
+          create: [
+            {
+              senderUserId: admin.id,
+              messageType: 'TEXT',
+              content: 'Front office: visitor badges are ready at the reception desk.',
+            },
+            {
+              senderUserId: clerk.id,
+              messageType: 'TEXT',
+              content: 'Received — I will hand them out and log arrivals in the register.',
+            },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    console.log(`[seed] group chat ${created.id} created`);
   }
 }
 

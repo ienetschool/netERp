@@ -61,14 +61,14 @@ export const correspondenceCreateSchema = z
     sentAt: z.coerce.date().nullish(),
     documentId: uuidSchema.nullish(),
   })
-  .refine(
-    (v) => (v.direction === 'INCOMING' ? v.receivedAt != null : true),
-    { message: 'Incoming correspondence requires a received date', path: ['receivedAt'] },
-  )
-  .refine(
-    (v) => (v.direction === 'OUTGOING' ? v.sentAt != null : true),
-    { message: 'Outgoing correspondence requires a sent date', path: ['sentAt'] },
-  );
+  .refine((v) => (v.direction === 'INCOMING' ? v.receivedAt != null : true), {
+    message: 'Incoming correspondence requires a received date',
+    path: ['receivedAt'],
+  })
+  .refine((v) => (v.direction === 'OUTGOING' ? v.sentAt != null : true), {
+    message: 'Outgoing correspondence requires a sent date',
+    path: ['sentAt'],
+  });
 
 export const correspondenceAssignSchema = z.object({
   assignedTo: uuidSchema,

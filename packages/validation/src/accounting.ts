@@ -3,13 +3,7 @@ import { dateOnlySchema, moneyStringSchema, uuidSchema } from './common.js';
 
 // ---- Chart of accounts --------------------------------------------------------
 
-export const accountTypeSchema = z.enum([
-  'ASSET',
-  'LIABILITY',
-  'EQUITY',
-  'REVENUE',
-  'EXPENSE',
-]);
+export const accountTypeSchema = z.enum(['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']);
 
 export const normalBalanceSchema = z.enum(['DEBIT', 'CREDIT']);
 
@@ -65,7 +59,7 @@ export const journalLineSchema = z
     (l) => {
       const d = Number(l.debit ?? '0');
       const c = Number(l.credit ?? '0');
-      return (d > 0) !== (c > 0) && d >= 0 && c >= 0;
+      return d > 0 !== c > 0 && d >= 0 && c >= 0;
     },
     { message: 'Each line needs exactly one of debit or credit greater than zero' },
   );

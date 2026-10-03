@@ -28,7 +28,7 @@ export class AccountingIngestProcessor {
 
   async process(job: Job): Promise<void> {
     const data = job.data as unknown as AccountingJobData;
-    const journal = data.payload?.journal as
+    const journal = data.payload.journal as
       | {
           journalDate?: string;
           sourceType?: string;
