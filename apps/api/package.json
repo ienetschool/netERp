@@ -13,6 +13,7 @@
     "test:unit": "vitest run src test"
   },
   "dependencies": {
+    "@erp/reporting": "*",
     "@erp/prisma": "*",
     "@erp/permissions": "*",
     "@erp/types": "*",

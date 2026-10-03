@@ -12,6 +12,8 @@
     "test:unit": "vitest run src test"
   },
   "dependencies": {
+    "@erp/reporting": "*",
+    "@erp/validation": "*",
     "@erp/prisma": "*",
     "@erp/types": "*",
     "bullmq": "^5.34.0",

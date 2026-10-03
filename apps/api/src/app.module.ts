@@ -39,6 +39,8 @@ import { OfficeController } from './office/office.controller.js';
 import { OfficeService } from './office/office.service.js';
 import { ChatController } from './communication/chat.controller.js';
 import { ChatService } from './communication/chat.service.js';
+import { ReportingController } from './reporting/reporting.controller.js';
+import { ReportingService } from './reporting/reporting.service.js';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
@@ -83,6 +85,7 @@ import { JwtModule } from '@nestjs/jwt';
     AccountingController,
     OfficeController,
     ChatController,
+    ReportingController,
   ],
   providers: [
     AuthService,
@@ -101,6 +104,7 @@ import { JwtModule } from '@nestjs/jwt';
     AccountingService,
     OfficeService,
     ChatService,
+    ReportingService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ApiEnvelopeInterceptor },

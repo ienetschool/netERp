@@ -8,8 +8,7 @@ export interface NavItem {
 /**
  * Primary navigation map (UI-UX.md §45). Items render only when the principal
  * holds the mapped permission; the server remains the enforcement boundary.
- * Stage-1 implements Administration, Documents, Dashboard and My Work; the
- * remaining groups activate with their vertical slices.
+ * Groups activate with their vertical slices; Stage 11 adds Reporting.
  */
 export const NAVIGATION: NavItem[] = [
   { label: 'Dashboard', href: '/' },
@@ -114,6 +113,18 @@ export const NAVIGATION: NavItem[] = [
     permission: 'communication.chat.view',
     children: [
       { label: 'Chat', href: '/communication/chat', permission: 'communication.chat.view' },
+    ],
+  },
+  {
+    label: 'Reports',
+    permission: 'reporting.report.view',
+    children: [
+      { label: 'Report Runner', href: '/reports', permission: 'reporting.report.view' },
+      {
+        label: 'Scheduled Reports',
+        href: '/reports/scheduled',
+        permission: 'reporting.report.view',
+      },
     ],
   },
   { label: 'Documents', href: '/documents', permission: 'documents.document.view' },

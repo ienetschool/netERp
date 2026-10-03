@@ -64,6 +64,9 @@ model Company {
   correspondences   Correspondence[]
   fileRecords       FileRecord[]
   conversations     Conversation[]
+  reportDefinitions ReportDefinition[]
+  scheduledReports  ScheduledReport[]
+  reportExports     ReportExport[]
 
   @@index([status])
 }
@@ -2049,4 +2052,107 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Reporting (DATA-MODEL §23; PRD Stage 11)
+// ---------------------------------------------------------------------------
+
+/// A catalogue entry describing a runnable report. `queryDefinition` is a
+/// declarative spec interpreted by the report engine (apps/api/src/reporting);
+/// it is never executed as SQL.
+model ReportDefinition {
+  id              String   @id @default(uuid())
+  companyId       String?
+  name            String
+  code            String   @unique
+  description     String?
+  module          String
+  queryDefinition Json
+  permission      String
+  status          String   @default("ACTIVE") // ACTIVE | DISABLED
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company            Company?           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  savedReports       SavedReport[]
+  scheduledReports   ScheduledReport[]
+  exports            ReportExport[]
+
+  @@index([status, module])
+  @@index([companyId])
+}
+
+/// A user's saved configuration: filters, columns, sorting and grouping.
+model SavedReport {
+  id                 String   @id @default(uuid())
+  userId             String
+  reportDefinitionId String
+  name               String
+  filters            Json     @default("{}")
+  columns            Json     @default("[]")
+  sorting            Json     @default("{}")
+  grouping           Json     @default("[]")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  reportDefinition ReportDefinition @relation(fields: [reportDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reportDefinitionId, name])
+  @@index([userId])
+}
+
+/// A recurring export. Delivery status is recorded per run; the worker owns
+/// execution and never reports a channel as delivered unless a provider ran.
+model ScheduledReport {
+  id                       String    @id @default(uuid())
+  reportDefinitionId       String
+  ownerUserId              String
+  schedule                 String
+  timezone                 String    @default("UTC")
+  filters                  Json      @default("{}")
+  outputFormat             String    @default("CSV") // CSV | JSON
+  deliveryChannel          String    @default("IN_APP") // IN_APP | EMAIL
+  recipientConfiguration   Json      @default("{}")
+  status                   String    @default("ACTIVE") // ACTIVE | PAUSED | DISABLED
+  nextRunAt                DateTime
+  lastRunAt                DateTime?
+  lastDeliveryStatus       String? // DELIVERED | FAILED
+  lastDeliveredAt          DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  company      Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId    String?
+  definition   ReportDefinition @relation(fields: [reportDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRunAt])
+  @@index([ownerUserId])
+}
+
+/// An export request: synchronous or queued, stored in secure temporary
+/// storage and expired; every export is audited (USER-FLOWS §21.2).
+model ReportExport {
+  id                 String    @id @default(uuid())
+  companyId          String?
+  reportDefinitionId String?
+  requestedById      String
+  format             String    @default("CSV") // CSV | JSON
+  status             String    @default("PENDING") // PENDING | RUNNING | READY | FAILED | EXPIRED
+  filters            Json      @default("{}")
+  storageKey         String?
+  rowCount           Int?
+  sizeBytes          Int?
+  errorMessage       String?
+  errorCode          String?
+  requestedAt        DateTime  @default(now())
+  completedAt        DateTime?
+  expiresAt          DateTime?
+
+  company   Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  definition ReportDefinition? @relation(fields: [reportDefinitionId], references: [id], onDelete: SetNull)
+
+  @@index([requestedById, requestedAt])
+  @@index([status, expiresAt])
 }

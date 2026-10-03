@@ -11,3 +11,4 @@ export * from './sales.js';
 export * from './accounting.js';
 export * from './office.js';
 export * from './chat.js';
+export * from './reporting.js';

@@ -131,7 +131,12 @@ async function ensureRoles(permissions: Map<string, string>): Promise<Map<string
       code: 'FINANCE_MANAGER',
       name: 'Finance Manager',
       description: 'Finance oversight and approvals',
-      include: (m) => ['accounting', 'payroll', 'procurement', 'sales'].includes(m),
+      include: (m, _r, a) =>
+        ['accounting', 'payroll', 'procurement', 'sales'].includes(m) ||
+        // Finance managers consume reporting (run, export, schedule) but never
+        // administer other people's. A second reporting principal makes
+        // per-user isolation (saved reports, exports, schedules) real.
+        (m === 'reporting' && ['view', 'export', 'download', 'create'].includes(a)),
     },
     {
       code: 'PURCHASE_OFFICER',
@@ -1226,6 +1231,8 @@ async function main(): Promise<void> {
   console.log('Office data ok');
   await ensureCommunicationData({ companyId: org.companyId });
   console.log('Communication data ok');
+  await ensureReportingData({ companyId: org.companyId });
+  console.log('Reporting data ok');
   console.log(
     'Seed complete. Users: admin@demo.local / manager@demo.local / finance@demo.local (password: Admin123!)',
   );
@@ -1673,6 +1680,211 @@ async function ensureCommunicationData(org: { companyId: string }): Promise<void
       select: { id: true },
     });
     console.log(`[seed] group chat ${created.id} created`);
+  }
+}
+
+/**
+ * Stage 11 reporting seed: the report catalogue. Each definition is a
+ * declarative queryDefinition interpreted by the engine
+ * (packages/reporting/src/engine.ts) — never SQL. Financial reports
+ * read POSTED accounting data only, as UI-UX §21 requires. Idempotent:
+ * definitions are upserted by their unique code.
+ */
+async function ensureReportingData(org: { companyId: string }): Promise<void> {
+  const definitions: Array<{
+    code: string;
+    name: string;
+    description: string;
+    module: string;
+    permission: string;
+    queryDefinition: Record<string, unknown>;
+  }> = [
+    {
+      code: 'GL_TRIAL_BALANCE',
+      name: 'Trial balance',
+      description: 'Debit and credit totals per account from posted journals.',
+      module: 'accounting',
+      permission: 'accounting.journal.view',
+      queryDefinition: {
+        source: 'JOURNAL_LINE',
+        metrics: ['debit', 'credit'],
+        dimensions: ['account', 'accountName', 'accountType'],
+        defaultGrouping: ['account'],
+        defaultSorting: { field: 'account', direction: 'asc' },
+      },
+    },
+    {
+      code: 'GL_VOLUME_BY_ACCOUNT_TYPE',
+      name: 'Posted volume by account type',
+      description: 'Activity level per account type, from posted journals.',
+      module: 'accounting',
+      permission: 'accounting.journal.view',
+      queryDefinition: {
+        source: 'JOURNAL_LINE',
+        metrics: ['debit', 'credit'],
+        dimensions: ['accountType', 'account'],
+        defaultGrouping: ['accountType'],
+        defaultSorting: { field: 'debit', direction: 'desc' },
+      },
+    },
+    {
+      code: 'AR_OUTSTANDING',
+      name: 'Customer receivables',
+      description: 'Outstanding customer invoices by customer.',
+      module: 'accounting',
+      permission: 'accounting.ar.view',
+      queryDefinition: {
+        source: 'CUSTOMER_INVOICE',
+        metrics: ['grandTotal', 'balance', 'invoiceCount'],
+        dimensions: ['customer', 'customerName', 'status'],
+        defaultGrouping: ['customerName'],
+        defaultSorting: { field: 'balance', direction: 'desc' },
+      },
+    },
+    {
+      code: 'AP_OUTSTANDING',
+      name: 'Supplier payables',
+      description: 'Outstanding supplier invoices by supplier.',
+      module: 'accounting',
+      permission: 'accounting.ap.view',
+      queryDefinition: {
+        source: 'SUPPLIER_INVOICE',
+        metrics: ['grandTotal', 'balance', 'invoiceCount'],
+        dimensions: ['supplier', 'supplierName', 'status'],
+        defaultGrouping: ['supplierName'],
+        defaultSorting: { field: 'balance', direction: 'desc' },
+      },
+    },
+    {
+      code: 'SALES_BY_CUSTOMER',
+      name: 'Sales orders by customer',
+      description: 'Order value and tax per customer.',
+      module: 'sales',
+      permission: 'sales.order.view',
+      queryDefinition: {
+        source: 'SALES_ORDER',
+        metrics: ['grandTotal', 'taxTotal', 'orderCount'],
+        dimensions: ['customer', 'customerName', 'status', 'branch'],
+        defaultGrouping: ['customerName'],
+        defaultSorting: { field: 'grandTotal', direction: 'desc' },
+      },
+    },
+    {
+      code: 'PROCUREMENT_BY_SUPPLIER',
+      name: 'Purchase orders by supplier',
+      description: 'Committed spend per supplier.',
+      module: 'procurement',
+      permission: 'procurement.purchase_order.view',
+      queryDefinition: {
+        source: 'PURCHASE_ORDER',
+        metrics: ['grandTotal', 'taxTotal', 'orderCount'],
+        dimensions: ['supplier', 'supplierName', 'status', 'warehouse'],
+        defaultGrouping: ['supplierName'],
+        defaultSorting: { field: 'grandTotal', direction: 'desc' },
+      },
+    },
+    {
+      code: 'STOCK_BY_PRODUCT',
+      name: 'Stock on hand by product',
+      description: 'On hand and reserved quantities per product.',
+      module: 'inventory',
+      permission: 'inventory.stock.view',
+      queryDefinition: {
+        source: 'STOCK_BALANCE',
+        metrics: ['onHand', 'reserved', 'balanceCount'],
+        dimensions: ['product', 'productName', 'warehouse'],
+        defaultGrouping: ['productName'],
+        defaultSorting: { field: 'onHand', direction: 'desc' },
+      },
+    },
+    {
+      code: 'PAYROLL_COST',
+      name: 'Payroll cost',
+      description: 'Gross and net payroll cost per run.',
+      module: 'payroll',
+      permission: 'payroll.payroll_run.view',
+      queryDefinition: {
+        source: 'PAYROLL_RUN',
+        metrics: ['totalGross', 'totalNet', 'employeeCount'],
+        dimensions: ['branch', 'status'],
+        defaultGrouping: ['branch'],
+        defaultSorting: { field: 'totalGross', direction: 'desc' },
+      },
+    },
+    {
+      code: 'HEADCOUNT',
+      name: 'Headcount',
+      description: 'Employees per department and branch.',
+      module: 'hr',
+      permission: 'hr.employee.view',
+      queryDefinition: {
+        source: 'EMPLOYEE',
+        metrics: ['headcount'],
+        dimensions: ['department', 'branch', 'status'],
+        defaultGrouping: ['department'],
+      },
+    },
+  ];
+
+  for (const definition of definitions) {
+    await prisma.reportDefinition.upsert({
+      where: { code: definition.code },
+      update: {
+        name: definition.name,
+        description: definition.description,
+        module: definition.module,
+        permission: definition.permission,
+        queryDefinition: definition.queryDefinition as never,
+        status: 'ACTIVE',
+      },
+      create: { ...definition, queryDefinition: definition.queryDefinition as never },
+    });
+  }
+  console.log(`Report definitions: ${definitions.length}`);
+
+  // A saved configuration and a schedule for the demo admin account.
+  const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo.local' } });
+  const trialBalance = await prisma.reportDefinition.findUniqueOrThrow({
+    where: { code: 'GL_TRIAL_BALANCE' },
+  });
+
+  const existingSaved = await prisma.savedReport.findFirst({
+    where: { userId: admin.id, reportDefinitionId: trialBalance.id, name: 'Quarter to date' },
+  });
+  if (!existingSaved) {
+    await prisma.savedReport.create({
+      data: {
+        userId: admin.id,
+        reportDefinitionId: trialBalance.id,
+        name: 'Quarter to date',
+        filters: { from: '2026-07-01', to: '2026-09-30' },
+        columns: [],
+        grouping: ['accountType'],
+        sorting: { field: 'debit', direction: 'desc' },
+      },
+    });
+  }
+
+  const existingSchedule = await prisma.scheduledReport.findFirst({
+    where: { ownerUserId: admin.id, reportDefinitionId: trialBalance.id },
+  });
+  if (!existingSchedule) {
+    const schedule = { frequency: 'WEEKLY', time: '07:00', dayOfWeek: 1 };
+    await prisma.scheduledReport.create({
+      data: {
+        reportDefinitionId: trialBalance.id,
+        ownerUserId: admin.id,
+        companyId: org.companyId,
+        schedule: JSON.stringify(schedule),
+        timezone: 'UTC',
+        filters: {},
+        outputFormat: 'CSV',
+        deliveryChannel: 'IN_APP',
+        recipientConfiguration: { userIds: [admin.id], emails: [] },
+        status: 'ACTIVE',
+        nextRunAt: new Date(Date.now() + 24 * 3600 * 1000),
+      },
+    });
   }
 }
 

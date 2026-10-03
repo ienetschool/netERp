@@ -118,11 +118,37 @@ export async function apiFetch<T>(
   return body;
 }
 
+/**
+ * Fetches a binary artefact (export, document) with the bearer token and
+ * hands it to the browser as a file. Plain links cannot send the header, so
+ * this keeps downloads authorization-checked by the API.
+ */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const tokens = readTokens();
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: tokens?.accessToken ? { Authorization: `Bearer ${tokens.accessToken}` } : {},
+  });
+  if (!res.ok) {
+    throw new ApiError('HTTP_ERROR', `Download failed with status ${res.status}`, res.status);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export const api = {
   get: <T>(path: string) => apiFetch<T>(path),
   post: <T>(path: string, body?: unknown) =>
     apiFetch<T>(path, {
       method: 'POST',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  patch: <T>(path: string, body?: unknown) =>
+    apiFetch<T>(path, {
+      method: 'PATCH',
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),

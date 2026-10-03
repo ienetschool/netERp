@@ -3,9 +3,11 @@ import { Queue, Worker } from 'bullmq';
 
 export const QUEUE_OUTBOX = 'outbox';
 export const QUEUE_NOTIFICATIONS = 'notifications';
+export const QUEUE_REPORTS = 'reports';
 
 export const JOB_OUTBOX_RELAY = 'outbox.relay';
 export const JOB_NOTIFY_DISPATCH = 'notify.dispatch';
+export const JOB_REPORT_SCHEDULE_RUN = 'report.schedule.run';
 
 export function redisConnection(): ConnectionOptions {
   const url = process.env.REDIS_URL ?? 'redis://localhost:6379';

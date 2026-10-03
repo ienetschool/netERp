@@ -45,9 +45,13 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
+    // Reflector.getAllAndOverride takes a SINGLE metadata key, not an array of
+    // keys. Passing `[PERMISSIONS_KEY]` looks up an array-valued key that no
+    // decorator ever sets, so `required` was always undefined and this guard
+    // silently allowed every request. Pass the key itself.
     const required = this.reflector.getAllAndOverride<
       { keys: string[]; mode: 'any' | 'all' } | undefined
-    >([PERMISSIONS_KEY], [context.getHandler(), context.getClass()]);
+    >(PERMISSIONS_KEY, [context.getHandler(), context.getClass()]);
 
     if (!required || required.keys.length === 0) {
       return true; // endpoint only requires authentication
