@@ -100,8 +100,19 @@ async function ensureRoles(permissions: Map<string, string>): Promise<Map<string
       code: 'BRANCH_MANAGER',
       name: 'Branch Manager',
       description: 'Operational management within a branch',
+      // `communication` is required: the seed makes this role a participant
+      // and message sender in the demo chats, so without it the role sits in
+      // a conversation it cannot list, read or post to.
       include: (m) =>
-        ['organization', 'hr', 'procurement', 'inventory', 'sales', 'office'].includes(m),
+        [
+          'organization',
+          'hr',
+          'procurement',
+          'inventory',
+          'sales',
+          'office',
+          'communication',
+        ].includes(m),
     },
     {
       code: 'HR_MANAGER',

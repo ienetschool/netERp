@@ -61,6 +61,10 @@ async function main() {
   const admin = await login('admin@demo.local');
   const manager = await login('manager@demo.local');
   const finance = await login('finance@demo.local');
+  // Holds the chat permissions but is not a participant in the seeded
+  // conversations, so it isolates the membership gate from the permission
+  // guard.
+  const office = await login('office@demo.local');
   check('three demo users authenticate', true, [admin, manager, finance].every((t) => t.length > 1000));
 
   const companies = await call(admin, 'GET', '/companies');
@@ -98,12 +102,27 @@ async function main() {
     history.body.data.rows.every((m, i, a) => i === 0 || new Date(a[i - 1].createdAt) <= new Date(m.createdAt)),
   );
 
+  section('permission gate');
+  // Authorization is layered: the permission guard runs first, the
+  // membership check inside the service second. `finance` holds neither
+  // communication.chat.view nor .create, so it is refused by the guard
+  // before membership is ever consulted - and the conversation is not
+  // revealed to it at all.
+  const noPermView = await call(finance, 'GET', `/chat/conversations/${direct.id}/messages`);
+  check('a user without chat.view is refused before membership', 403, noPermView.status);
+  const noPermSend = await call(finance, 'POST', `/chat/conversations/${direct.id}/messages`, { content: 'sneak' });
+  check('a user without chat.create cannot post', 403, noPermSend.status);
+  const noPermList = await call(finance, 'GET', '/chat/conversations');
+  check('a user without chat.view cannot list conversations', 403, noPermList.status);
+
   section('membership gate');
-  const outsider = await call(finance, 'GET', `/chat/conversations/${direct.id}/messages`);
+  // `office` holds chat.view and chat.create but is not a participant, so it
+  // passes the guard and must be stopped by the membership check itself.
+  const outsider = await call(office, 'GET', `/chat/conversations/${direct.id}/messages`);
   check('non-member cannot read a conversation', 404, outsider.status);
-  const outsiderSend = await call(finance, 'POST', `/chat/conversations/${direct.id}/messages`, { content: 'sneak' });
+  const outsiderSend = await call(office, 'POST', `/chat/conversations/${direct.id}/messages`, { content: 'sneak' });
   check('non-member cannot post', 404, outsiderSend.status);
-  const outsiderList = await call(finance, 'GET', '/chat/conversations');
+  const outsiderList = await call(office, 'GET', '/chat/conversations');
   check('non-member list excludes the conversation', false, outsiderList.body.data.rows.some((c) => c.id === direct.id));
 
   section('sending and unread');
@@ -192,7 +211,10 @@ async function main() {
   check('creator is the group OWNER', 'OWNER', newGroup.body.data.participants.find((p) => p.userId === adminId)?.role);
   check('invitee joins as MEMBER', 'MEMBER', newGroup.body.data.participants.find((p) => p.userId === managerId)?.role);
 
-  const nonMemberAdd = await call(finance, 'POST', `/chat/conversations/${groupId}/participants`, { userId: managerId });
+  // `office` holds chat.edit but is not in this group, so the membership check
+  // is what must refuse it. `finance` holds no chat permission at all and would
+  // be stopped by the guard before reaching the membership rule.
+  const nonMemberAdd = await call(office, 'POST', `/chat/conversations/${groupId}/participants`, { userId: managerId });
   check('non-member cannot add participants', 404, nonMemberAdd.status);
   const nonOwnerAdd = await call(manager, 'POST', `/chat/conversations/${groupId}/participants`, { userId: financeId });
   check('member without OWNER role cannot add participants', 422, nonOwnerAdd.status);
