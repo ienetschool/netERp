@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 import { Alert, Button, StatusBadge } from '@erp/ui';
@@ -14,11 +14,6 @@ interface UserRow {
   status: string;
   mfaEnabled: boolean;
   lastLoginAt: string | null;
-}
-
-interface UsersResponse {
-  data: UserRow[];
-  meta: { page: number; pageSize: number; total: number };
 }
 
 const inputClass =
@@ -148,12 +143,12 @@ export function UsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const rolesQuery = useQuery({
     queryKey: ['admin', 'roles'],
-    queryFn: () => api.get<{ data: Array<{ id: string; code: string; name: string }> }>('/roles'),
+    queryFn: () => apiList<{ id: string; code: string; name: string }>('/roles?pageSize=200'),
   });
 
   const usersQuery = useQuery({
     queryKey: ['admin', 'users', page],
-    queryFn: () => api.get<UsersResponse>(`/users?page=${page}&pageSize=25`),
+    queryFn: () => apiList<UserRow>(`/users?page=${page}&pageSize=25`),
   });
 
   const columns: Array<DataTableColumn<UserRow>> = [
@@ -188,10 +183,10 @@ export function UsersPage() {
       />
       <DataTable
         columns={columns}
-        rows={usersQuery.data?.data}
+        rows={usersQuery.data?.rows}
         loading={usersQuery.isLoading}
         error={usersQuery.error}
-        total={usersQuery.data?.meta.total}
+        total={usersQuery.data?.total}
         page={page}
         pageSize={25}
         onPageChange={setPage}
@@ -203,7 +198,7 @@ export function UsersPage() {
           onClose={() => {
             setShowCreate(false);
           }}
-          roleOptions={rolesQuery.data?.data ?? []}
+          roleOptions={rolesQuery.data?.rows ?? []}
         />
       ) : null}
     </div>

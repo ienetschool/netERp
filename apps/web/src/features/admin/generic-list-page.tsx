@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 import { StatusBadge } from '@erp/ui';
@@ -25,10 +25,7 @@ export function GenericListPage({ config }: { config: GenericListConfig }) {
   const [page, setPage] = useState(1);
   const listQuery = useQuery({
     queryKey: [config.queryKey, page],
-    queryFn: () =>
-      api.get<{ data: ListRow[]; meta: { total: number } }>(
-        `${config.endpoint}?page=${page}&pageSize=25`,
-      ),
+    queryFn: () => apiList<ListRow>(`${config.endpoint}?page=${page}&pageSize=25`),
   });
 
   return (
@@ -36,10 +33,10 @@ export function GenericListPage({ config }: { config: GenericListConfig }) {
       <PageHeader title={config.title} description={config.description} />
       <DataTable
         columns={config.columns}
-        rows={listQuery.data?.data}
+        rows={listQuery.data?.rows}
         loading={listQuery.isLoading}
         error={listQuery.error}
-        total={listQuery.data?.meta.total}
+        total={listQuery.data?.total}
         page={page}
         pageSize={25}
         onPageChange={setPage}

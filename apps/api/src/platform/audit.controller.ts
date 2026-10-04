@@ -55,13 +55,41 @@ export class AuditController {
         orderBy: { timestamp: 'desc' },
         skip: p.skip,
         take: p.take,
+        select: {
+          id: true,
+          timestamp: true,
+          action: true,
+          resourceType: true,
+          resourceId: true,
+          companyId: true,
+          requestId: true,
+          ipAddress: true,
+          actorUserId: true,
+        },
       }),
       this.prisma.auditLog.count({ where }),
     ]);
 
+    // AuditLog carries only `actorUserId`, and a reader scans the actor column —
+    // resolve it to a person here rather than making every page de-duplicate ids.
+    const actorIds = [...new Set(items.map((i) => i.actorUserId).filter((v): v is string => !!v))];
+    const actors = actorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, email: true, displayName: true },
+        })
+      : [];
+    const actorById = new Map(actors.map((a) => [a.id, a]));
+
     return {
-      data: items,
-      meta: { page: p.page, pageSize: p.pageSize, total, requestId: getRequestId(req) },
+      data: {
+        rows: items.map((item) => ({
+          ...item,
+          actor: item.actorUserId ? (actorById.get(item.actorUserId) ?? null) : null,
+        })),
+        total,
+      },
+      meta: { page: p.page, pageSize: p.pageSize, requestId: getRequestId(req) },
     };
   }
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 import { usePermissions } from '@/lib/auth';
@@ -71,15 +71,12 @@ export default function DeliveriesPage() {
 
   const warehousesQuery = useQuery({
     queryKey: ['warehouses-options'],
-    queryFn: () =>
-      api.get<{ items?: WarehouseOption[]; rows?: WarehouseOption[] }>(
-        '/warehouses?page=1&pageSize=50',
-      ),
+    queryFn: () => apiList<WarehouseOption>('/warehouses?pageSize=200'),
   });
 
   const companiesQuery = useQuery({
     queryKey: ['companies-options'],
-    queryFn: () => api.get<CompanyOption[]>('/companies'),
+    queryFn: () => apiList<CompanyOption>('/companies?pageSize=200'),
   });
 
   const createMutation = useMutation({
@@ -125,7 +122,7 @@ export default function DeliveriesPage() {
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
   ];
 
-  const warehouses = warehousesQuery.data?.items ?? warehousesQuery.data?.rows ?? [];
+  const warehouses = warehousesQuery.data?.rows ?? [];
   const deliverable = (ordersQuery.data?.rows ?? []).filter(
     (o) => !form.companyId || o.companyId === form.companyId,
   );
@@ -159,7 +156,7 @@ export default function DeliveriesPage() {
             required
           >
             <option value="">Company…</option>
-            {(companiesQuery.data ?? []).map((c) => (
+            {(companiesQuery.data?.rows ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.code} — {c.name}
               </option>

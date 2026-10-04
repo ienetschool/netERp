@@ -56,8 +56,12 @@ export class JwtAuthGuard implements CanActivate {
       throw new AuthenticationError('Invalid or expired token');
     }
 
-    // Deny tokens for users who were disabled or locked after issuance.
-    const user = await this.prisma.user.findUnique({ where: { id: claims.sub } });
+    // Deny tokens for users who were disabled or locked after issuance. The lookup
+    // runs on every request, so it goes through the reconnecting helper: a
+    // pooled socket dropped by the server must not turn into a failed sign-in.
+    const user = await this.prisma.withReconnect((db) =>
+      db.user.findUnique({ where: { id: claims.sub } }),
+    );
     if (!user || user.status !== 'ACTIVE') {
       throw new AuthenticationError('Account is not active');
     }

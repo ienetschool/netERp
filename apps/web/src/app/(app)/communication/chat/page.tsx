@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth, usePermissions } from '@/lib/auth';
 import { Alert, StatusBadge } from '@erp/ui';
@@ -88,10 +88,10 @@ export default function ChatPage() {
 
   const companiesQuery = useQuery({
     queryKey: ['companies-options'],
-    queryFn: () => api.get<CompanyOption[]>('/companies'),
+    queryFn: () => apiList<CompanyOption>('/companies?pageSize=200'),
   });
 
-  const companyId = form.companyId || (companiesQuery.data?.[0]?.id ?? '');
+  const companyId = form.companyId || (companiesQuery.data?.rows[0]?.id ?? '');
   const directoryQuery = useQuery({
     queryKey: ['chat-directory', companyId],
     queryFn: () =>
@@ -246,7 +246,7 @@ export default function ChatPage() {
               setForm({ ...form, companyId: e.target.value, memberIds: [], recipientId: '' });
             }}
           >
-            {(companiesQuery.data ?? []).map((c) => (
+            {(companiesQuery.data?.rows ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.code} — {c.name}
               </option>

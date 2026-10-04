@@ -454,11 +454,13 @@ export class ChatService {
   async markRead(principal: Principal, conversationId: string, requestId: string | null) {
     const conversation = await this.requireMembership(principal, conversationId);
 
-    const updated = await this.prisma.conversationParticipant.update({
-      where: { conversationId_userId: { conversationId, userId: principal.userId } },
-      data: { lastReadAt: new Date() },
-      select: { lastReadAt: true },
-    });
+    const updated = await this.prisma.withReconnect((db) =>
+      db.conversationParticipant.update({
+        where: { conversationId_userId: { conversationId, userId: principal.userId } },
+        data: { lastReadAt: new Date() },
+        select: { lastReadAt: true },
+      }),
+    );
 
     await this.audit.record({
       actorUserId: principal.userId,

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 import { usePermissions } from '@/lib/auth';
@@ -46,12 +46,12 @@ export default function PayGroupsPage() {
 
   const companiesQuery = useQuery({
     queryKey: ['companies-options'],
-    queryFn: () => api.get<CompanyOption[]>('/companies'),
+    queryFn: () => apiList<CompanyOption>('/companies?pageSize=200'),
   });
 
   const createMutation = useMutation({
     mutationFn: (payload: typeof EMPTY_FORM) => {
-      const company = (companiesQuery.data ?? []).find((c) => c.id === payload.companyId);
+      const company = (companiesQuery.data?.rows ?? []).find((c) => c.id === payload.companyId);
       return api.post('/payroll/pay-groups', {
         companyId: payload.companyId,
         name: payload.name,
@@ -108,7 +108,7 @@ export default function PayGroupsPage() {
             required
           >
             <option value="">Company…</option>
-            {(companiesQuery.data ?? []).map((c) => (
+            {(companiesQuery.data?.rows ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.code} — {c.name}
               </option>

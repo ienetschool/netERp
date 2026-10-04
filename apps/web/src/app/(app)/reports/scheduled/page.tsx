@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { usePermissions } from '@/lib/auth';
 import { Alert, StatusBadge } from '@erp/ui';
@@ -73,7 +73,7 @@ export default function ScheduledReportsPage() {
 
   const companiesQuery = useQuery({
     queryKey: ['companies-options'],
-    queryFn: () => api.get<CompanyOption[]>('/companies'),
+    queryFn: () => apiList<CompanyOption>('/companies?pageSize=200'),
   });
 
   const listQuery = useQuery({
@@ -230,7 +230,7 @@ export default function ScheduledReportsPage() {
               }}
             >
               <option value="">All in my scope</option>
-              {(companiesQuery.data ?? []).map((c) => (
+              {(companiesQuery.data?.rows ?? []).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.code} — {c.name}
                 </option>

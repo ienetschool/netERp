@@ -64,6 +64,10 @@ function parsePage(page: string | undefined, pageSize: string | undefined) {
   return { page: p, pageSize: ps, skip: (p - 1) * ps, take: ps };
 }
 
+/**
+ * The app-wide list envelope: the API client unwraps one `data` level, so rows
+ * and the total both live inside it and `meta` carries only request context.
+ */
 function buildList<T>(
   items: T[],
   total: number,
@@ -71,8 +75,8 @@ function buildList<T>(
   req: Request,
 ) {
   return {
-    data: items,
-    meta: { page: p.page, pageSize: p.pageSize, total, requestId: getRequestId(req) },
+    data: { rows: items, total },
+    meta: { page: p.page, pageSize: p.pageSize, requestId: getRequestId(req) },
   };
 }
 
@@ -236,19 +240,32 @@ export class AdminController {
 
   @Get('roles')
   @RequirePermissions('identity.role.view')
-  async listRoles(): Promise<unknown> {
-    return this.prisma.role.findMany({
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        description: true,
-        isSystemRole: true,
-        status: true,
-        _count: { select: { users: true, permissions: true } },
-      },
-      orderBy: { code: 'asc' },
-    });
+  async listRoles(
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '25',
+    @Req() req: AuthedRequest,
+  ): Promise<unknown> {
+    const p = parsePage(page, pageSize);
+    const where: Prisma.RoleWhereInput = {};
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.role.findMany({
+        where,
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          description: true,
+          isSystemRole: true,
+          status: true,
+          _count: { select: { users: true, permissions: true } },
+        },
+        orderBy: { code: 'asc' },
+        skip: p.skip,
+        take: p.take,
+      }),
+      this.prisma.role.count({ where }),
+    ]);
+    return buildList(items, total, p, req);
   }
 
   @Post('roles')
@@ -319,11 +336,25 @@ export class AdminController {
 
   @Get('companies')
   @RequirePermissions('organization.company.view')
-  async listCompanies(@Req() req: AuthedRequest): Promise<unknown> {
+  async listCompanies(
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '25',
+    @Req() req: AuthedRequest,
+  ): Promise<unknown> {
     const principal = this.requirePrincipal(req);
+    const p = parsePage(page, pageSize);
     const where: Prisma.CompanyWhereInput =
       principal.companyIds !== null ? { id: { in: principal.companyIds } } : {};
-    return this.prisma.company.findMany({ where, orderBy: { code: 'asc' } });
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.company.findMany({
+        where,
+        orderBy: { code: 'asc' },
+        skip: p.skip,
+        take: p.take,
+      }),
+      this.prisma.company.count({ where }),
+    ]);
+    return buildList(items, total, p, req);
   }
 
   @Post('companies')
@@ -361,9 +392,12 @@ export class AdminController {
   @RequirePermissions('organization.branch.view')
   async listBranches(
     @Query('companyId') companyId: string | undefined,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '25',
     @Req() req: AuthedRequest,
   ): Promise<unknown> {
     const principal = this.requirePrincipal(req);
+    const p = parsePage(page, pageSize);
     const where: Prisma.BranchWhereInput = {};
     if (companyId) {
       if (!isUuid(companyId)) throw new ValidationError('companyId must be a UUID');
@@ -374,10 +408,16 @@ export class AdminController {
     } else if (principal.companyIds !== null) {
       where.companyId = { in: principal.companyIds };
     }
-    return this.prisma.branch.findMany({
-      where,
-      orderBy: [{ companyId: 'asc' }, { code: 'asc' }],
-    });
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.branch.findMany({
+        where,
+        orderBy: [{ companyId: 'asc' }, { code: 'asc' }],
+        skip: p.skip,
+        take: p.take,
+      }),
+      this.prisma.branch.count({ where }),
+    ]);
+    return buildList(items, total, p, req);
   }
 
   @Post('branches')
@@ -419,9 +459,12 @@ export class AdminController {
   @RequirePermissions('organization.department.view')
   async listDepartments(
     @Query('companyId') companyId: string | undefined,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '25',
     @Req() req: AuthedRequest,
   ): Promise<unknown> {
     const principal = this.requirePrincipal(req);
+    const p = parsePage(page, pageSize);
     const where: Prisma.DepartmentWhereInput = {};
     if (companyId) {
       if (!isUuid(companyId)) throw new ValidationError('companyId must be a UUID');
@@ -432,7 +475,16 @@ export class AdminController {
     } else if (principal.companyIds !== null) {
       where.companyId = { in: principal.companyIds };
     }
-    return this.prisma.department.findMany({ where, orderBy: { code: 'asc' } });
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.department.findMany({
+        where,
+        orderBy: { code: 'asc' },
+        skip: p.skip,
+        take: p.take,
+      }),
+      this.prisma.department.count({ where }),
+    ]);
+    return buildList(items, total, p, req);
   }
 
   @Post('departments')
@@ -470,9 +522,12 @@ export class AdminController {
   @RequirePermissions('organization.warehouse.view')
   async listWarehouses(
     @Query('companyId') companyId: string | undefined,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '25',
     @Req() req: AuthedRequest,
   ): Promise<unknown> {
     const principal = this.requirePrincipal(req);
+    const p = parsePage(page, pageSize);
     const where: Prisma.WarehouseWhereInput = {};
     if (companyId) {
       if (!isUuid(companyId)) {
@@ -485,7 +540,16 @@ export class AdminController {
     } else if (principal.companyIds !== null) {
       where.companyId = { in: principal.companyIds };
     }
-    return this.prisma.warehouse.findMany({ where, orderBy: { code: 'asc' } });
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.warehouse.findMany({
+        where,
+        orderBy: { code: 'asc' },
+        skip: p.skip,
+        take: p.take,
+      }),
+      this.prisma.warehouse.count({ where }),
+    ]);
+    return buildList(items, total, p, req);
   }
 
   @Post('warehouses')

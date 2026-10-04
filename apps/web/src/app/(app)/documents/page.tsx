@@ -34,9 +34,7 @@ export default function DocumentsPage() {
   const listQuery = useQuery({
     queryKey: ['documents', page],
     queryFn: () =>
-      api.get<{ data: DocumentRow[]; meta: { total: number } }>(
-        `/documents?page=${page}&pageSize=25`,
-      ),
+      api.get<{ rows: DocumentRow[]; total: number }>(`/documents?page=${page}&pageSize=25`),
   });
 
   const upload = useMutation({
@@ -145,10 +143,10 @@ export default function DocumentsPage() {
 
       <DataTable
         columns={columns}
-        rows={listQuery.data?.data}
+        rows={listQuery.data?.rows}
         loading={listQuery.isLoading}
         error={listQuery.error}
-        total={listQuery.data?.meta.total}
+        total={listQuery.data?.total}
         page={page}
         pageSize={25}
         onPageChange={setPage}

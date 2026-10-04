@@ -14,6 +14,7 @@ interface ApprovalTaskRow {
   dueAt: string | null;
   entityType: string;
   entityId: string;
+  entityLabel: string | null;
   currentState: string;
   workflow: string;
 }
@@ -89,7 +90,8 @@ export default function ApprovalsPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium">
-                    {t.workflow} · {t.entityType} ({t.entityId.slice(0, 8)}) · step {t.step}
+                    {t.workflow} · {t.entityType.replace(/_/g, ' ')}
+                    {t.entityLabel ? ` · ${t.entityLabel}` : ''} · step {t.step}
                   </p>
                   <p className="text-xs text-[var(--erp-muted)]">
                     State {t.currentState} ·{' '}

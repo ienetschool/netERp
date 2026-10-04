@@ -71,6 +71,18 @@ async function main() {
   const paper = skus.find((p) => p.sku === 'SKU-0001');
   const stapler = skus.find((p) => p.sku === 'SKU-0003');
   assert(!!paper && !!stapler, 'stock products available', products.json);
+  const stock = await api('GET', `/inventory/stock?pageSize=100&warehouseId=${MAIN_WH}`, token2);
+  const balances = stock.json.data?.rows ?? [];
+  const availableFor = (product) =>
+    balances
+      .filter((balance) => balance.productId === product.id)
+      .reduce((sum, balance) => sum + Number(balance.onHand), 0);
+  const paperQty = Math.min(2, availableFor(paper));
+  const staplerQty = Math.min(2, availableFor(stapler));
+  assert(paperQty > 0 && staplerQty > 0, 'products have deliverable stock', {
+    paper: paperQty,
+    stapler: staplerQty,
+  });
   r = await api('POST', '/sales/orders', token2, {
     companyId: DEMO_CO,
     customerId: customer.id,
@@ -81,13 +93,13 @@ async function main() {
       {
         productId: paper.id,
         description: paper.name,
-        quantity: 30,
+        quantity: paperQty,
         unitPrice: paper.standardCost,
       },
       {
         productId: stapler.id,
         description: stapler.name,
-        quantity: 5,
+        quantity: staplerQty,
         unitPrice: stapler.standardCost,
       },
     ],

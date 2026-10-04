@@ -23,7 +23,7 @@ export class ApiError extends Error {
   }
 }
 
-interface StoredTokens {
+export interface StoredTokens {
   accessToken: string;
   refreshToken: string;
 }
@@ -49,26 +49,87 @@ export function clearTokens(): void {
   window.localStorage.removeItem(TOKEN_KEY);
 }
 
+/** Fired when the session is genuinely gone, so the shell can show the login screen. */
+export const SIGNED_OUT_EVENT = 'erp:signed-out';
+
+/** Serialises refreshes across the tabs sharing one localStorage token pair. */
+const REFRESH_LOCK = 'erp.token-refresh';
+
 let refreshInFlight: Promise<boolean> | null = null;
 
-async function tryRefresh(): Promise<boolean> {
+/**
+ * The slice of the Web Locks API this module needs. Typed locally because
+ * `LockManager.request` is generic over a value-or-promise callback, which
+ * infers `Promise<Promise<boolean>>` here and loses the flattening.
+ */
+interface CrossTabLock {
+  request(name: string, run: () => Promise<boolean>): Promise<boolean>;
+}
+
+function refreshLock(): CrossTabLock | null {
+  if (typeof navigator === 'undefined') return null;
+  const locks = (navigator as unknown as { locks?: CrossTabLock }).locks;
+  return locks ?? null;
+}
+
+/**
+ * Whether a failed refresh means the user is signed out, or whether another
+ * tab already rotated the pair while this request was in flight.
+ *
+ * Refresh tokens are single-use: the API revokes the presented one and treats
+ * a second presentation of it as reuse, killing the whole token family. So a
+ * failure is only fatal when the stored pair is still the pair we tried. If it
+ * changed, another tab already succeeded and wiping storage would sign every
+ * tab out of a session that is still healthy.
+ */
+export function classifyRefreshFailure(
+  attempted: StoredTokens | null,
+  stored: StoredTokens | null,
+): 'adopt-newer' | 'sign-out' {
+  if (!stored) return 'sign-out';
+  if (!attempted) return 'adopt-newer';
+  return stored.refreshToken === attempted.refreshToken ? 'sign-out' : 'adopt-newer';
+}
+
+function notifySignedOut(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(SIGNED_OUT_EVENT));
+}
+
+/**
+ * Rotates the token pair at most once across every tab on this origin.
+ *
+ * `staleAccessToken` is the access token whose 401 triggered this call. Inside
+ * the cross-tab lock it doubles as the reuse detector: if the stored access
+ * token has already moved on, another tab refreshed and the answer is simply
+ * "yes, retry" without spending another single-use token.
+ */
+async function tryRefresh(staleAccessToken: string | null): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
+  const run = async (): Promise<boolean> => {
     const tokens = readTokens();
     if (!tokens?.refreshToken) return false;
+    if (staleAccessToken && tokens.accessToken !== staleAccessToken) return true;
+
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: tokens.refreshToken }),
     });
     if (!res.ok) {
+      const outcome = classifyRefreshFailure(tokens, readTokens());
+      if (outcome === 'adopt-newer') return true;
       clearTokens();
+      notifySignedOut();
       return false;
     }
     const body = (await res.json()) as Envelope<StoredTokens>;
     storeTokens(body.data);
     return true;
-  })().finally(() => {
+  };
+
+  const lock = refreshLock();
+  refreshInFlight = (lock ? lock.request(REFRESH_LOCK, run) : run()).finally(() => {
     refreshInFlight = null;
   });
   return refreshInFlight;
@@ -90,7 +151,7 @@ export async function apiFetch<T>(
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
 
   if (res.status === 401 && retryOn401) {
-    const refreshed = await tryRefresh();
+    const refreshed = await tryRefresh(tokens?.accessToken ?? null);
     if (refreshed) {
       return apiFetch<T>(path, init, false);
     }
@@ -137,6 +198,20 @@ export async function apiDownload(path: string, filename: string): Promise<void>
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export interface ListEnvelope<T> {
+  rows: T[];
+  total: number;
+}
+
+/**
+ * Reads a paginated list endpoint. Every list in the API answers with
+ * `{ data: { rows, total }, meta }` and the client unwraps one `data` level, so
+ * rows and total arrive together — never from `meta`, which it drops.
+ */
+export function apiList<T>(path: string): Promise<ListEnvelope<T>> {
+  return apiFetch<ListEnvelope<T>>(path);
 }
 
 export const api = {

@@ -44,6 +44,8 @@ export interface ApprovalTaskView {
   dueAt: Date | null;
   entityType: string;
   entityId: string;
+  /** The document number a human recognises, e.g. "JE-2026-000004". */
+  entityLabel: string | null;
   currentState: string;
   workflow: string;
 }
@@ -484,6 +486,9 @@ export class WorkflowEngineService {
       take: 100,
     });
 
+    const labels = await this.describeEntities(
+      tasks.map((t) => ({ entityType: t.instance.entityType, entityId: t.instance.entityId })),
+    );
     return tasks.map((t) => ({
       id: t.id,
       step: t.step,
@@ -491,9 +496,82 @@ export class WorkflowEngineService {
       dueAt: t.dueAt,
       entityType: t.instance.entityType,
       entityId: t.instance.entityId,
+      entityLabel: labels.get(`${t.instance.entityType}:${t.instance.entityId}`) ?? null,
       currentState: t.instance.currentState,
       workflow: t.instance.definition.name,
     }));
+  }
+
+  /**
+   * Resolves the document number for each approval target. An approver decides
+   * on "JE-2026-000004", never on a truncated id, so the inbox shows the label
+   * when one exists and falls back to the raw id when the type has no number.
+   */
+  private async describeEntities(
+    refs: Array<{ entityType: string; entityId: string }>,
+  ): Promise<Map<string, string>> {
+    const idsOf = (entityType: string): string[] => [
+      ...new Set(refs.filter((r) => r.entityType === entityType).map((r) => r.entityId)),
+    ];
+
+    const [journalIds, poIds, prIds, soIds, quoteIds, leaveIds] = [
+      idsOf('journal_entry'),
+      idsOf('purchase_order'),
+      idsOf('purchase_request'),
+      idsOf('sales_order'),
+      idsOf('sales_quotation'),
+      idsOf('leave_request'),
+    ];
+
+    const [journals, purchaseOrders, purchaseRequests, salesOrders, quotations, leaveRequests] =
+      await Promise.all([
+        this.prisma.journalEntry.findMany({
+          where: { id: { in: journalIds } },
+          select: { id: true, journalNo: true },
+        }),
+        this.prisma.purchaseOrder.findMany({
+          where: { id: { in: poIds } },
+          select: { id: true, poNo: true },
+        }),
+        this.prisma.purchaseRequest.findMany({
+          where: { id: { in: prIds } },
+          select: { id: true, requestNo: true },
+        }),
+        this.prisma.salesOrder.findMany({
+          where: { id: { in: soIds } },
+          select: { id: true, orderNo: true },
+        }),
+        this.prisma.salesQuotation.findMany({
+          where: { id: { in: quoteIds } },
+          select: { id: true, quotationNo: true },
+        }),
+        // Leave requests carry no number; the dates identify one to a person.
+        this.prisma.leaveRequest.findMany({
+          where: { id: { in: leaveIds } },
+          select: { id: true, startDate: true, endDate: true },
+        }),
+      ]);
+
+    const labels = new Map<string, string>();
+    const put = <T extends { id: string }>(
+      entityType: string,
+      rows: T[],
+      label: (row: T) => string,
+    ) => {
+      for (const row of rows) labels.set(`${entityType}:${row.id}`, label(row));
+    };
+    put('journal_entry', journals, (r: { journalNo: string }) => r.journalNo);
+    put('purchase_order', purchaseOrders, (r: { poNo: string }) => r.poNo);
+    put('purchase_request', purchaseRequests, (r: { requestNo: string }) => r.requestNo);
+    put('sales_order', salesOrders, (r: { orderNo: string }) => r.orderNo);
+    put('sales_quotation', quotations, (r: { quotationNo: string }) => r.quotationNo);
+    put(
+      'leave_request',
+      leaveRequests,
+      (r: { startDate: Date; endDate: Date }) =>
+        `${r.startDate.toISOString().slice(0, 10)} to ${r.endDate.toISOString().slice(0, 10)}`,
+    );
+    return labels;
   }
 
   // ---- Definition & instance management (admin surfaces) -------------------

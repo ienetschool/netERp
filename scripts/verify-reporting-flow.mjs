@@ -49,11 +49,29 @@ async function call(token, method, path, body) {
   return { status: res.status, body: parsed };
 }
 
+/**
+ * A run of this harness outlives the 15-minute access token, so a mid-run 401
+ * means "re-authenticate", not "the check failed". Re-login and retry once;
+ * anything that is still 401 is a real authorization failure and is reported.
+ */
+const tokenOwners = new Map();
+
+async function callAs(token, method, path, body) {
+  const first = await call(token, method, path, body);
+  if (first.status !== 401 || !token) return first;
+  const email = tokenOwners.get(token);
+  if (!email) return first;
+  const fresh = await login(email);
+  tokenOwners.set(fresh, email);
+  return call(fresh, method, path, body);
+}
+
 async function login(email) {
   const { body } = await call(null, 'POST', '/auth/login', { email, password: PASSWORD });
   if (!body?.data?.accessToken) {
     throw new Error(`login failed for ${email}: ${JSON.stringify(body).slice(0, 300)}`);
   }
+  tokenOwners.set(body.data.accessToken, email);
   return body.data.accessToken;
 }
 
@@ -77,12 +95,15 @@ async function main() {
   const office = await login('office@demo.local');
   check('three demo users authenticate', true, [admin, finance, office].every((t) => t.length > 1000));
 
-  const companies = await call(admin, 'GET', '/companies');
+  const companies = await callAs(admin, 'GET', '/companies');
   check('GET /companies returns the demo company', 200, companies.status);
-  const companyId = companies.body.data[0].id;
+  // Every list endpoint answers with { rows, total } inside `data`.
+  const companyRows = companies.body.data?.rows ?? [];
+  check('company list uses the rows/total envelope', true, companyRows.length > 0);
+  const companyId = companyRows[0].id;
 
   section('report catalogue');
-  const defs = await call(admin, 'GET', '/reports/definitions');
+  const defs = await callAs(admin, 'GET', '/reports/definitions');
   check('admin sees the seeded report catalogue', 200, defs.status);
   const definitions = defs.body?.data?.rows ?? [];
   check('catalogue has at least 9 reports', true, definitions.length >= 9);
@@ -101,13 +122,13 @@ async function main() {
   check('trial balance is scoped to posted journals', true, String(trialBalance?.supportedFilters ?? []).includes('from'));
 
   section('permission gating');
-  const officeDefs = await call(office, 'GET', '/reports/definitions');
+  const officeDefs = await callAs(office, 'GET', '/reports/definitions');
   check('a low-privilege user gets a 403 on the catalogue', 403, officeDefs.status);
-  check('a low-privilege user gets a 403 on a run', 403, (await call(office, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {})).status);
+  check('a low-privilege user gets a 403 on a run', 403, (await callAs(office, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {})).status);
   check('an unauthenticated run is a 401', 401, (await call(null, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {})).status);
 
   section('running a report');
-  const run = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const run = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     grouping: ['accountType'],
     pageSize: 50,
   });
@@ -123,7 +144,7 @@ async function main() {
     (result?.rows ?? []).every((r) => typeof r.group?.accountType === 'string'),
   );
 
-  const ungrouped = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const ungrouped = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     grouping: [],
     pageSize: 50,
   });
@@ -134,7 +155,7 @@ async function main() {
     (ungrouped.body?.data?.columns ?? []).filter((c) => c.kind === 'dimension').map((c) => c.key),
   );
 
-  const sorted = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const sorted = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     grouping: ['accountType'],
     sorting: { field: 'debit', direction: 'desc' },
   });
@@ -145,19 +166,19 @@ async function main() {
     Number(sorted.body?.data?.rows?.[0]?.metrics?.debit ?? 0) >= Number(sorted.body?.data?.rows?.[1]?.metrics?.debit ?? 0),
   );
 
-  const dated = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const dated = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     filters: { from: '2000-01-01', to: '2000-01-02' },
     grouping: ['accountType'],
   });
   check('a date range that matches nothing returns no rows', 201, dated.status);
   check('narrow date range excludes everything', 0, dated.body?.data?.rows?.length);
 
-  const reversedRange = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const reversedRange = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     filters: { from: '2026-12-31', to: '2026-01-01' },
   });
   check('from after to is rejected', 400, reversedRange.status);
 
-  const headcountRun = await call(admin, 'POST', '/reports/definitions/HEADCOUNT/run', {
+  const headcountRun = await callAs(admin, 'POST', '/reports/definitions/HEADCOUNT/run', {
     grouping: ['department'],
   });
   check('headcount run succeeds', 201, headcountRun.status);
@@ -167,19 +188,19 @@ async function main() {
     (headcountRun.body?.data?.rows ?? []).every((r) => Number(r.metrics?.headcount ?? 0) >= 0),
   );
 
-  const sortedBad = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const sortedBad = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     sorting: { field: 'notAColumn', direction: 'asc' },
   });
   check('sorting on an unknown field is rejected', 422, sortedBad.status);
   check('the rejection is a business rule error', 'BUSINESS_RULE_ERROR', sortedBad.body?.code);
 
   section('filters and scope');
-  const badFilter = await call(admin, 'POST', '/reports/definitions/HEADCOUNT/run', {
+  const badFilter = await callAs(admin, 'POST', '/reports/definitions/HEADCOUNT/run', {
     filters: { productId: '00000000-0000-0000-0000-000000000001' },
   });
   check('an unsupported filter is rejected, not silently ignored', 422, badFilter.status);
 
-  const scoped = await call(admin, 'POST', '/reports/definitions/HEADCOUNT/run', {
+  const scoped = await callAs(admin, 'POST', '/reports/definitions/HEADCOUNT/run', {
     filters: { companyId },
     grouping: ['department'],
   });
@@ -198,19 +219,19 @@ async function main() {
   );
   check('the in-scope companyId returns rows', true, (scoped.body?.data?.rows?.length ?? 0) > 0);
 
-  const badUuid = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const badUuid = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     filters: { companyId: 'not-a-uuid' },
   });
   check('a malformed companyId is a validation error', 400, badUuid.status);
 
-  const unknownReport = await call(admin, 'POST', '/reports/definitions/NOPE_DOES_NOT_EXIST/run', {});
+  const unknownReport = await callAs(admin, 'POST', '/reports/definitions/NOPE_DOES_NOT_EXIST/run', {});
   check('an unknown report code is a 404', 404, unknownReport.status);
 
   section('every catalogue source runs');
   // Each seeded definition must run without error. A wrong Prisma field name
   // only surfaces when the report is actually executed.
   for (const definition of definitions) {
-    const res = await call(admin, 'POST', `/reports/definitions/${definition.code}/run`, {
+    const res = await callAs(admin, 'POST', `/reports/definitions/${definition.code}/run`, {
       grouping: definition.defaultGrouping,
       pageSize: 5,
     });
@@ -223,12 +244,12 @@ async function main() {
   }
 
   section('paging');
-  const page1 = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const page1 = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     grouping: ['account'],
     page: 1,
     pageSize: 1,
   });
-  const page2 = await call(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
+  const page2 = await callAs(admin, 'POST', '/reports/definitions/GL_TRIAL_BALANCE/run', {
     grouping: ['account'],
     page: 2,
     pageSize: 1,
@@ -248,10 +269,10 @@ async function main() {
    * rows of empty strings, so only a per-cell assertion catches it.
    */
   async function checkDrillDown(code, grouping) {
-    const base = await call(admin, 'POST', `/reports/definitions/${code}/run`, { grouping, pageSize: 50 });
+    const base = await callAs(admin, 'POST', `/reports/definitions/${code}/run`, { grouping, pageSize: 50 });
     check(`${code} runs before drill-down`, 201, base.status);
     const group = base.body?.data?.rows?.[0]?.group ?? {};
-    const res = await call(admin, 'POST', `/reports/definitions/${code}/drill-down`, { grouping, groupKey: group });
+    const res = await callAs(admin, 'POST', `/reports/definitions/${code}/drill-down`, { grouping, groupKey: group });
     check(`${code} drill-down succeeds`, 201, res.status);
     const data = res.body?.data;
     check(`${code} drill-down returns detail headers`, true, (data?.headers ?? []).length > 0);
@@ -285,7 +306,7 @@ async function main() {
   );
 
   section('exports');
-  const exportCsv = await call(admin, 'POST', '/reports/exports', {
+  const exportCsv = await callAs(admin, 'POST', '/reports/exports', {
     reportDefinitionId: trialBalance.id,
     format: 'CSV',
   });
@@ -297,14 +318,14 @@ async function main() {
   const csvExportId = exportCsv.body?.data?.id;
   created.exports.push(csvExportId);
 
-  const exportJson = await call(admin, 'POST', '/reports/exports', {
+  const exportJson = await callAs(admin, 'POST', '/reports/exports', {
     reportDefinitionId: headcount.id,
     format: 'JSON',
   });
   check('JSON export is created', 201, exportJson.status);
   created.exports.push(exportJson.body?.data?.id);
 
-  const exportList = await call(admin, 'GET', '/reports/exports?pageSize=20');
+  const exportList = await callAs(admin, 'GET', '/reports/exports?pageSize=20');
   check('exports list includes both new exports', true, (exportList.body?.data?.rows ?? []).length >= 2);
   check('exports are listed newest first', true, (exportList.body?.data?.rows ?? []).every((r, i, a) => i === 0 || new Date(a[i - 1].requestedAt) >= new Date(r.requestedAt)));
 
@@ -326,7 +347,7 @@ async function main() {
   check('an anonymous download is a 401', 401, anonDownload.status);
 
   section('saved configurations');
-  const saved = await call(admin, 'POST', '/reports/saved', {
+  const saved = await callAs(admin, 'POST', '/reports/saved', {
     reportDefinitionId: trialBalance.id,
     name: `Verification ${Date.now()}`,
     filters: { from: '2020-01-01', to: '2030-01-01' },
@@ -338,12 +359,12 @@ async function main() {
   const savedId = saved.body?.data?.id;
   created.saved.push(savedId);
 
-  const savedList = await call(admin, 'GET', `/reports/saved?definitionId=${trialBalance.id}`);
+  const savedList = await callAs(admin, 'GET', `/reports/saved?definitionId=${trialBalance.id}`);
   check('saved reports are listed for the definition', true, (savedList.body?.data?.rows ?? []).some((r) => r.id === savedId));
   check('a saved report keeps its grouping', ['accountType'], saved.body?.data?.grouping);
   check('a saved report keeps its filters', '2020-01-01', saved.body?.data?.filters?.from);
 
-  const duplicate = await call(admin, 'POST', '/reports/saved', {
+  const duplicate = await callAs(admin, 'POST', '/reports/saved', {
     reportDefinitionId: trialBalance.id,
     name: saved.body?.data?.name,
     columns: [],
@@ -351,18 +372,18 @@ async function main() {
   });
   check('a duplicate saved name is rejected', 409, duplicate.status);
 
-  const otherSaved = await call(finance, 'GET', `/reports/saved?definitionId=${trialBalance.id}`);
+  const otherSaved = await callAs(finance, 'GET', `/reports/saved?definitionId=${trialBalance.id}`);
   check('another reporting user sees none of the saved reports', 0, otherSaved.body?.data?.total);
 
 
-  const deleteSaved = await call(admin, 'DELETE', `/reports/saved/${savedId}`);
+  const deleteSaved = await callAs(admin, 'DELETE', `/reports/saved/${savedId}`);
   check('a saved report can be deleted', 200, deleteSaved.status);
   created.saved = created.saved.filter((id) => id !== savedId);
-  const afterDelete = await call(admin, 'GET', `/reports/saved?definitionId=${trialBalance.id}`);
+  const afterDelete = await callAs(admin, 'GET', `/reports/saved?definitionId=${trialBalance.id}`);
   check('the deleted saved report is gone', false, (afterDelete.body?.data?.rows ?? []).some((r) => r.id === savedId));
 
   section('scheduled reports');
-  const schedule = await call(admin, 'POST', '/reports/scheduled', {
+  const schedule = await callAs(admin, 'POST', '/reports/scheduled', {
     reportDefinitionId: trialBalance.id,
     schedule: { frequency: 'WEEKLY', time: '07:00', dayOfWeek: 1 },
     timezone: 'UTC',
@@ -382,7 +403,7 @@ async function main() {
       new Date(schedule.body?.data?.nextRunAt).getUTCHours() === 7,
   );
 
-  const daily = await call(admin, 'POST', '/reports/scheduled', {
+  const daily = await callAs(admin, 'POST', '/reports/scheduled', {
     reportDefinitionId: headcount.id,
     schedule: { frequency: 'DAILY', time: '06:30' },
     timezone: 'America/New_York',
@@ -398,28 +419,28 @@ async function main() {
     new Date(daily.body?.data?.nextRunAt).getUTCHours() === 11 || new Date(daily.body?.data?.nextRunAt).getUTCHours() === 10,
   );
 
-  const badFrequency = await call(admin, 'POST', '/reports/scheduled', {
+  const badFrequency = await callAs(admin, 'POST', '/reports/scheduled', {
     reportDefinitionId: headcount.id,
     schedule: { frequency: 'HOURLY', time: '06:30' },
     timezone: 'UTC',
   });
   check('an unsupported frequency is rejected', 400, badFrequency.status);
 
-  const missingDay = await call(admin, 'POST', '/reports/scheduled', {
+  const missingDay = await callAs(admin, 'POST', '/reports/scheduled', {
     reportDefinitionId: headcount.id,
     schedule: { frequency: 'WEEKLY', time: '06:30' },
     timezone: 'UTC',
   });
   check('a weekly schedule without dayOfWeek is rejected', 400, missingDay.status);
 
-  const badZone = await call(admin, 'POST', '/reports/scheduled', {
+  const badZone = await callAs(admin, 'POST', '/reports/scheduled', {
     reportDefinitionId: headcount.id,
     schedule: { frequency: 'DAILY', time: '06:30' },
     timezone: 'Mars/Olympus',
   });
   check('an unknown time zone is rejected', 422, badZone.status);
 
-  const scheduledList = await call(admin, 'GET', '/reports/scheduled');
+  const scheduledList = await callAs(admin, 'GET', '/reports/scheduled');
   check('schedules are listed', true, (scheduledList.body?.data?.rows ?? []).length >= 2);
   check(
     'schedules are listed soonest-first',
@@ -427,11 +448,11 @@ async function main() {
     (scheduledList.body?.data?.rows ?? []).every((r, i, a) => i === 0 || new Date(a[i - 1].nextRunAt) <= new Date(r.nextRunAt)),
   );
 
-  const paused = await call(admin, 'PATCH', `/reports/scheduled/${scheduleId}/status`, { status: 'PAUSED' });
+  const paused = await callAs(admin, 'PATCH', `/reports/scheduled/${scheduleId}/status`, { status: 'PAUSED' });
   check('a schedule can be paused', 200, paused.status);
   check('the paused status is stored', 'PAUSED', paused.body?.data?.status);
 
-  const resumed = await call(admin, 'PATCH', `/reports/scheduled/${scheduleId}/status`, { status: 'ACTIVE' });
+  const resumed = await callAs(admin, 'PATCH', `/reports/scheduled/${scheduleId}/status`, { status: 'ACTIVE' });
   check('a schedule can be resumed', 200, resumed.status);
   check(
     'resuming recomputes the next run into the future',
@@ -439,16 +460,16 @@ async function main() {
     new Date(resumed.body?.data?.nextRunAt).getTime() > Date.now(),
   );
 
-  const disabled = await call(admin, 'PATCH', `/reports/scheduled/${scheduleId}/status`, { status: 'DISABLED' });
+  const disabled = await callAs(admin, 'PATCH', `/reports/scheduled/${scheduleId}/status`, { status: 'DISABLED' });
   check('a schedule can be disabled', 200, disabled.status);
 
-  const otherSchedules = await call(finance, 'GET', '/reports/scheduled');
+  const otherSchedules = await callAs(finance, 'GET', '/reports/scheduled');
   check('schedules are private to their owner', false, (otherSchedules.body?.data?.rows ?? []).some((r) => r.id === scheduleId));
 
   // Finance holds reporting view/export/download/create but NOT delete, so the
   // permission guard refuses first. A permitted-but-not-owner delete is
   // covered by the ownership check below.
-  const foreignDelete = await call(finance, 'DELETE', `/reports/scheduled/${scheduleId}`);
+  const foreignDelete = await callAs(finance, 'DELETE', `/reports/scheduled/${scheduleId}`);
   check('reporting.delete is required to remove a schedule', 403, foreignDelete.status);
 
   const foreignSchedule = await call(
@@ -467,15 +488,15 @@ async function main() {
   created.schedules.push(foreignSchedule.body?.data?.id);
 
   section('audit');
-  const exportAudit = await call(admin, 'GET', '/audit?resourceType=report_export&pageSize=20');
-  check('export creation is audited', true, (exportAudit.body?.data ?? []).some((r) => r.action === 'reporting.export_created'));
+  const exportAudit = await callAs(admin, 'GET', '/audit?resourceType=report_export&pageSize=20');
+  check('export creation is audited', true, (exportAudit.body?.data?.rows ?? []).some((r) => r.action === 'reporting.export_created'));
   check(
     'downloads are audited with the request id',
     true,
-    (exportAudit.body?.data ?? []).some((r) => r.action === 'reporting.export_downloaded' && Boolean(r.requestId)),
+    (exportAudit.body?.data?.rows ?? []).some((r) => r.action === 'reporting.export_downloaded' && Boolean(r.requestId)),
   );
-  const scheduleAudit = await call(admin, 'GET', '/audit?resourceType=scheduled_report&pageSize=20');
-  check('schedule creation is audited', true, (scheduleAudit.body?.data ?? []).some((r) => r.action === 'reporting.schedule_created'));
+  const scheduleAudit = await callAs(admin, 'GET', '/audit?resourceType=scheduled_report&pageSize=20');
+  check('schedule creation is audited', true, (scheduleAudit.body?.data?.rows ?? []).some((r) => r.action === 'reporting.schedule_created'));
 
   section('cleanup');
   await deleteCreatedSchedules(admin);

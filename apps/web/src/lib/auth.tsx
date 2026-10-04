@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, clearTokens, readTokens, storeTokens } from './api';
+import { api, clearTokens, readTokens, storeTokens, SIGNED_OUT_EVENT } from './api';
 
 export interface Principal {
   userId: string;
@@ -51,6 +51,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // A request that cannot be refreshed (revoked session, reuse detected)
+  // clears storage underneath us. Mirror that here so the shell stops showing a
+  // signed-in user and the guard redirects to the login screen instead of every
+  // page rendering "Missing bearer token".
+  useEffect(() => {
+    const onSignedOut = () => {
+      setPrincipal(null);
+      router.push('/login');
+    };
+    window.addEventListener(SIGNED_OUT_EVENT, onSignedOut);
+    return () => {
+      window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut);
+    };
+  }, [router]);
 
   const login = useCallback(async (email: string, password: string) => {
     const tokens = await api.post<{ accessToken: string; refreshToken: string }>('/auth/login', {

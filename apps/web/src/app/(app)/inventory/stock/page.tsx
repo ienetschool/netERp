@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 
@@ -57,10 +57,7 @@ export default function StockPage() {
 
   const warehousesQuery = useQuery({
     queryKey: ['warehouses-options'],
-    queryFn: () =>
-      api.get<{ rows: Array<{ id: string; code: string; name: string }>; total: number }>(
-        '/warehouses?page=1&pageSize=50',
-      ),
+    queryFn: () => apiList<{ id: string; code: string; name: string }>('/warehouses?pageSize=200'),
   });
 
   const stockColumns: Array<DataTableColumn<StockRow>> = [

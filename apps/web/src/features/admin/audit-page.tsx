@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 
@@ -12,6 +12,7 @@ interface AuditRow {
   resourceType: string;
   resourceId: string | null;
   actorUserId: string | null;
+  actor: { email: string; displayName: string | null } | null;
   timestamp: string;
   requestId: string | null;
 }
@@ -20,15 +21,18 @@ export function AuditPage() {
   const [page, setPage] = useState(1);
   const auditQuery = useQuery({
     queryKey: ['admin', 'audit', page],
-    queryFn: () =>
-      api.get<{ data: AuditRow[]; meta: { total: number } }>(`/audit?page=${page}&pageSize=50`),
+    queryFn: () => apiList<AuditRow>(`/audit?page=${page}&pageSize=50`),
   });
 
   const columns: Array<DataTableColumn<AuditRow>> = [
     { key: 'timestamp', header: 'Time', render: (r) => new Date(r.timestamp).toLocaleString() },
     { key: 'action', header: 'Action', render: (r) => r.action },
     { key: 'resourceType', header: 'Resource', render: (r) => r.resourceType },
-    { key: 'actor', header: 'Actor', render: (r) => r.actorUserId ?? 'system' },
+    {
+      key: 'actor',
+      header: 'Actor',
+      render: (r) => r.actor?.displayName || r.actor?.email || 'system',
+    },
   ];
 
   return (
@@ -39,10 +43,10 @@ export function AuditPage() {
       />
       <DataTable
         columns={columns}
-        rows={auditQuery.data?.data}
+        rows={auditQuery.data?.rows}
         loading={auditQuery.isLoading}
         error={auditQuery.error}
-        total={auditQuery.data?.meta.total}
+        total={auditQuery.data?.total}
         page={page}
         pageSize={50}
         onPageChange={setPage}

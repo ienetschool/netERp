@@ -7,7 +7,7 @@ import {
   Query,
   Req,
   Res,
-  UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -60,11 +60,14 @@ export class DocumentsController {
   @RequirePermissions('documents.document.upload', 'office.document.upload')
   @UseInterceptors(AnyFilesInterceptor())
   async upload(
-    @UploadedFile() file: MulterFile | undefined,
+    // AnyFilesInterceptor fills `@UploadedFiles()`; `@UploadedFile()` stays
+    // undefined under it, so an upload would always report "No file provided".
+    @UploadedFiles() files: MulterFile[] | undefined,
     @Body() body: Record<string, string>,
     @Req() req: AuthedRequest,
   ): Promise<unknown> {
     const principal = this.requirePrincipal(req);
+    const file = files?.[0];
     if (!file) {
       throw new ValidationError('No file provided');
     }
@@ -201,8 +204,13 @@ export class DocumentsController {
       this.prisma.document.count({ where }),
     ]);
     return {
-      data: items,
-      meta: { page: p.page, pageSize: p.pageSize, total, requestId: getRequestId(req) },
+      // Prisma hands back `sizeBytes` as a BigInt, which JSON cannot serialize;
+      // the detail endpoint already maps it to a string, so lists must too.
+      data: {
+        rows: items.map((item) => ({ ...item, sizeBytes: item.sizeBytes.toString() })),
+        total,
+      },
+      meta: { page: p.page, pageSize: p.pageSize, requestId: getRequestId(req) },
     };
   }
 
@@ -284,12 +292,13 @@ export class DocumentsController {
   @UseInterceptors(AnyFilesInterceptor())
   async addVersion(
     @Param('id') id: string,
-    @UploadedFile() file: MulterFile | undefined,
+    @UploadedFiles() files: MulterFile[] | undefined,
     @Body() body: Record<string, string>,
     @Req() req: AuthedRequest,
   ): Promise<unknown> {
     const principal = this.requirePrincipal(req);
     if (!this.isUuid(id)) throw new ValidationError('Invalid document id');
+    const file = files?.[0];
     if (!file) throw new ValidationError('No file provided');
     if (file.size > MAX_UPLOAD_BYTES) {
       throw new ValidationError('File exceeds the 20 MB upload limit');
