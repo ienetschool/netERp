@@ -98,14 +98,14 @@ export default function SuppliersPage() {
 
       {canCreate ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-5"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-5"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
           }}
         >
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.companyId}
             onChange={(e) => {
               setForm({ ...form, companyId: e.target.value });
@@ -120,7 +120,7 @@ export default function SuppliersPage() {
             ))}
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Legal name"
             value={form.legalName}
             onChange={(e) => {
@@ -129,7 +129,7 @@ export default function SuppliersPage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Display name (optional)"
             value={form.displayName}
             onChange={(e) => {
@@ -137,7 +137,7 @@ export default function SuppliersPage() {
             }}
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Email"
             type="email"
             value={form.email}

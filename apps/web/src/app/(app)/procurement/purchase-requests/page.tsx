@@ -142,7 +142,7 @@ export default function PurchaseRequestsPage() {
 
       {canCreate ? (
         <form
-          className="mb-6 space-y-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4"
+          className="mb-6 space-y-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
@@ -150,7 +150,7 @@ export default function PurchaseRequestsPage() {
         >
           <div className="grid gap-3 md:grid-cols-4">
             <select
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select"
               value={form.companyId}
               onChange={(e) => {
                 setForm({ ...form, companyId: e.target.value });
@@ -165,7 +165,7 @@ export default function PurchaseRequestsPage() {
               ))}
             </select>
             <input
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-input"
               type="date"
               value={form.requiredDate}
               onChange={(e) => {
@@ -174,7 +174,7 @@ export default function PurchaseRequestsPage() {
               required
             />
             <input
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm md:col-span-2"
+              className="erp-input md:col-span-2"
               placeholder="Purpose (optional)"
               value={form.purpose}
               onChange={(e) => {
@@ -186,7 +186,7 @@ export default function PurchaseRequestsPage() {
             {form.lines.map((line, i) => (
               <div key={i} className="grid items-center gap-2 md:grid-cols-4">
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs md:col-span-2"
+                  className="erp-input md:col-span-2"
                   placeholder="Description"
                   value={line.description}
                   onChange={(e) => {
@@ -197,7 +197,7 @@ export default function PurchaseRequestsPage() {
                   required
                 />
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-input"
                   type="number"
                   min="1"
                   step="1"
@@ -210,7 +210,7 @@ export default function PurchaseRequestsPage() {
                   required
                 />
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-input"
                   placeholder="Unit cost e.g. 12.50"
                   value={line.estimatedUnitCost}
                   onChange={(e) => {

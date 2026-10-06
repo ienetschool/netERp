@@ -1,0 +1,105 @@
+name: Deploy
+
+# Runs the quality gates, then ships main to the live Plesk host and restarts pm2.
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   SSH_PRIVATE_KEY  private key that can log in to the host as root
+#   SSH_HOST         host address (defaults to 76.13.98.31)
+#   SSH_USER         login user (defaults to root)
+#   SSH_KNOWN_HOSTS  optional known_hosts line for the host; fetched with ssh-keyscan when unset
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REMOTE_APP_DIR: /var/www/vhosts/ienet.online/erp.ienet.online/app
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prisma generate
+        run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+  deploy:
+    name: Deploy to production
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure rsync is available
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rsync
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::error::Repository secret SSH_PRIVATE_KEY is not set"
+            exit 1
+          fi
+          HOST="${SSH_HOST:-76.13.98.31}"
+          USER="${SSH_USER:-root}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan -H "$HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          fi
+          chmod 600 "$HOME/.ssh/known_hosts"
+          {
+            echo "Host neterp"
+            echo "  HostName $HOST"
+            echo "  User $USER"
+            echo "  IdentityFile $HOME/.ssh/deploy_key"
+            echo "  IdentitiesOnly yes"
+          } > "$HOME/.ssh/config"
+          chmod 600 "$HOME/.ssh/config"
+          ssh -o BatchMode=yes neterp 'echo "ssh ok: $(hostname)"'
+
+      - name: Sync source to the server
+        run: scripts/deploy-sync.sh neterp "$REMOTE_APP_DIR"
+
+      - name: Build and restart on the server
+        run: ssh -o BatchMode=yes neterp "APP_DIR='$REMOTE_APP_DIR' bash '$REMOTE_APP_DIR/scripts/deploy-host.sh'"
+
+      - name: Report
+        if: always()
+        run: |
+          echo "## Deploy ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: \`$REMOTE_APP_DIR\`" >> "$GITHUB_STEP_SUMMARY"

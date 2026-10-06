@@ -84,7 +84,7 @@ export default function ApprovalsPage() {
       ) : rows.length === 0 ? (
         <p className="text-sm text-[var(--erp-muted)]">No pending approvals.</p>
       ) : (
-        <ul className="divide-y divide-[var(--erp-border)] overflow-hidden rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)]">
+        <ul className="divide-y divide-[var(--erp-border)] overflow-hidden rounded-lg border border-[var(--erp-border)] erp-frost">
           {rows.map((t) => (
             <li key={t.id} className="p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -103,7 +103,7 @@ export default function ApprovalsPage() {
               {rejectingId === t.id ? (
                 <div className="mt-3 space-y-2">
                   <input
-                    className="w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                    className="erp-input"
                     placeholder="Rejection reason (required)"
                     value={rejectionReason}
                     onChange={(e) => {

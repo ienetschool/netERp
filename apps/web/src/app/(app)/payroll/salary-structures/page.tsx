@@ -203,7 +203,7 @@ export default function SalaryStructuresPage() {
 
       {canCreate ? (
         <form
-          className="mb-6 space-y-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4"
+          className="mb-6 space-y-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
@@ -211,7 +211,7 @@ export default function SalaryStructuresPage() {
         >
           <div className="grid gap-3 md:grid-cols-3">
             <select
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select"
               value={form.companyId}
               onChange={(e) => {
                 setForm({ ...form, companyId: e.target.value });
@@ -226,7 +226,7 @@ export default function SalaryStructuresPage() {
               ))}
             </select>
             <input
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-input"
               placeholder="Structure name (e.g. Standard Staff)"
               value={form.name}
               onChange={(e) => {
@@ -239,7 +239,7 @@ export default function SalaryStructuresPage() {
             {form.components.map((c, i) => (
               <div key={i} className="grid items-center gap-2 md:grid-cols-7">
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-input"
                   placeholder="CODE"
                   value={c.code}
                   onChange={(e) => {
@@ -250,7 +250,7 @@ export default function SalaryStructuresPage() {
                   required
                 />
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-input"
                   placeholder="Name"
                   value={c.name}
                   onChange={(e) => {
@@ -261,7 +261,7 @@ export default function SalaryStructuresPage() {
                   required
                 />
                 <select
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-select"
                   value={c.type}
                   onChange={(e) => {
                     const components = [...form.components];
@@ -274,7 +274,7 @@ export default function SalaryStructuresPage() {
                   <option value="EMPLOYER_CONTRIBUTION">Employer contribution</option>
                 </select>
                 <select
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-select"
                   value={c.calculationMethod}
                   onChange={(e) => {
                     const components = [...form.components];
@@ -287,7 +287,7 @@ export default function SalaryStructuresPage() {
                 </select>
                 {c.calculationMethod === 'FLAT' ? (
                   <input
-                    className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                    className="erp-input"
                     placeholder="Amount e.g. 150.00"
                     value={c.value}
                     onChange={(e) => {
@@ -299,7 +299,7 @@ export default function SalaryStructuresPage() {
                   />
                 ) : (
                   <input
-                    className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                    className="erp-input"
                     placeholder="Percent e.g. 25"
                     value={c.percentage}
                     onChange={(e) => {
@@ -371,14 +371,14 @@ export default function SalaryStructuresPage() {
 
       {canAssign ? (
         <form
-          className="mt-8 mb-4 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-5"
+          className="mt-8 mb-4 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-5"
           onSubmit={(e) => {
             e.preventDefault();
             assignMutation.mutate(assignment);
           }}
         >
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={assignment.employeeId}
             onChange={(e) => {
               setAssignment({ ...assignment, employeeId: e.target.value });
@@ -393,7 +393,7 @@ export default function SalaryStructuresPage() {
             ))}
           </select>
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={assignment.salaryStructureId}
             onChange={(e) => {
               setAssignment({ ...assignment, salaryStructureId: e.target.value });
@@ -408,7 +408,7 @@ export default function SalaryStructuresPage() {
             ))}
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             type="date"
             value={assignment.effectiveFrom}
             onChange={(e) => {
@@ -417,7 +417,7 @@ export default function SalaryStructuresPage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Base salary e.g. 4500.00"
             value={assignment.baseSalary}
             onChange={(e) => {

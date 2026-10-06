@@ -166,6 +166,12 @@ export class SalesController {
     });
   }
 
+  @Get('deliveries/:id')
+  @RequirePermissions('sales.delivery.view')
+  async getDelivery(@Param('id') id: string, @Req() req: AuthedRequest) {
+    return this.sales.getDelivery(requirePrincipal(req), id);
+  }
+
   // ---- Invoices --------------------------------------------------------------------
 
   @Post('invoices')
@@ -218,5 +224,11 @@ export class SalesController {
     @Req() req: AuthedRequest,
   ) {
     return this.sales.listCustomerReceipts(requirePrincipal(req), parsePagination(page, pageSize));
+  }
+
+  @Get('receipts/:id')
+  @RequirePermissions('sales.receipt.view')
+  async getReceipt(@Param('id') id: string, @Req() req: AuthedRequest) {
+    return this.sales.getCustomerReceipt(requirePrincipal(req), id);
   }
 }

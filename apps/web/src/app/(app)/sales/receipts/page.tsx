@@ -5,6 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { DocExport } from '@/components/DocExport';
+import { DocumentSheet, type DocumentModel } from '@/components/DocumentSheet';
+import { PrintPreview } from '@/components/PrintPreview';
+import { downloadModel, modelBase, modelShareText, modelTotal } from '@/lib/document';
 import { usePermissions } from '@/lib/auth';
 import { Alert, StatusBadge } from '@erp/ui';
 
@@ -16,6 +20,27 @@ interface ReceiptRow {
   method: string;
   status: string;
   customer: { displayName: string };
+}
+
+interface ReceiptAllocation {
+  id: string;
+  allocatedAmount: string;
+  invoice: { invoiceNo: string; grandTotal: string; paidAmount: string; status: string };
+}
+
+interface ReceiptDetail {
+  id: string;
+  companyId: string;
+  receiptNo: string;
+  receiptDate: string;
+  amount: string;
+  method: string;
+  reference: string | null;
+  bankAccountRef: string | null;
+  status: string;
+  customer: { customerNo: string; displayName: string };
+  currency: { code: string };
+  allocations: ReceiptAllocation[];
 }
 
 interface InvoiceOption {
@@ -49,7 +74,12 @@ export default function ReceiptsPage() {
   const queryClient = useQueryClient();
   const { can } = usePermissions();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [detail, setDetail] = useState<ReceiptDetail | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [loadingDoc, setLoadingDoc] = useState(false);
 
   const canCreate = can('sales.receipt.create');
 
@@ -116,28 +146,136 @@ export default function ReceiptsPage() {
     ? (Number(selectedInvoice.grandTotal) - Number(selectedInvoice.paidAmount)).toFixed(2)
     : '';
 
+  const companyName = detail
+    ? (companiesQuery.data?.rows.find((c) => c.id === detail.companyId)?.name ?? '')
+    : '';
+
+  const amount = (value: string | number) =>
+    Number(value).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+  /** Flat document model shared by the print preview and the file exports. */
+  const documentModel = (receipt: ReceiptDetail): DocumentModel => ({
+    companyName,
+    docType: 'Payment Receipt',
+    docNo: receipt.receiptNo,
+    status: receipt.status,
+    partyLabel: 'Received from',
+    partyName: receipt.customer.displayName,
+    partyMeta: [
+      `Customer No. ${receipt.customer.customerNo}`,
+      `Method ${receipt.method.replaceAll('_', ' ')}`,
+    ],
+    facts: [
+      { label: 'Receipt date', value: new Date(receipt.receiptDate).toLocaleDateString() },
+      { label: 'Currency', value: receipt.currency.code },
+      { label: 'Reference', value: receipt.reference ?? '—' },
+    ],
+    columns: ['Invoice', 'Invoice total', 'Allocated'],
+    lines: receipt.allocations.map((allocation) => ({
+      id: allocation.id,
+      cells: [
+        allocation.invoice.invoiceNo,
+        amount(allocation.invoice.grandTotal),
+        amount(allocation.allocatedAmount),
+      ],
+    })),
+    totals: [{ label: 'Total received', value: amount(receipt.amount), emphasis: true }],
+  });
+
+  /** Loads the full receipt (header + allocations) before opening the export dialog. */
+  const openDocument = async (id: string) => {
+    setError(null);
+    setNotice(null);
+    setLoadingDoc(true);
+    try {
+      const receipt = await api.get<ReceiptDetail>(`/sales/receipts/${id}`);
+      setDetail(receipt);
+      setExportOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the receipt');
+    } finally {
+      setLoadingDoc(false);
+    }
+  };
+
+  const onDownload = (format: string) => {
+    if (!detail) return;
+    const model = documentModel(detail);
+    if (
+      !downloadModel(
+        model,
+        format as 'PDF' | 'EXCEL' | 'CSV',
+        modelBase('receipt', detail.receiptNo),
+      )
+    ) {
+      // PDF is produced by the browser's print dialog, so hand off to the preview.
+      setExportOpen(false);
+      setPreviewOpen(true);
+      return;
+    }
+    setNotice(`Exported ${detail.receiptNo} as ${format === 'EXCEL' ? 'Excel' : format}.`);
+  };
+
+  const onShare = async () => {
+    if (!detail) return;
+    const text = modelShareText(documentModel(detail));
+    // Not every browser exposes the Share API, and the DOM types mark it as
+    // required — read it as optional so the clipboard fallback stays reachable.
+    const nav = navigator as unknown as {
+      share?: (data: ShareData) => Promise<void>;
+    };
+    try {
+      if (nav.share) {
+        await nav.share({ title: `Receipt ${detail.receiptNo}`, text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        setNotice('Receipt summary copied to the clipboard.');
+      }
+      setExportOpen(false);
+    } catch {
+      // The user dismissed the share sheet — nothing to report.
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="Receipts"
         description="Allocations reduce open AR: POSTED → PARTIALLY_PAID → PAID."
       />
-      {error ? (
-        <Alert tone="error" title="Error">
-          {error}
-        </Alert>
+      {error || notice || loadingDoc ? (
+        <div className="mb-4 space-y-2">
+          {error ? (
+            <Alert tone="error" title="Error">
+              {error}
+            </Alert>
+          ) : null}
+          {notice ? (
+            <Alert tone="success" title="Done">
+              {notice}
+            </Alert>
+          ) : null}
+          {loadingDoc ? (
+            <Alert tone="info" title="Loading receipt">
+              Fetching the receipt for preview…
+            </Alert>
+          ) : null}
+        </div>
       ) : null}
 
       {canCreate ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-6"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-6"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
           }}
         >
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.companyId}
             onChange={(e) => {
               setForm({ ...form, companyId: e.target.value, invoiceId: '' });
@@ -152,7 +290,7 @@ export default function ReceiptsPage() {
             ))}
           </select>
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm md:col-span-2"
+            className="erp-select md:col-span-2"
             value={form.invoiceId}
             onChange={(e) => {
               const invoice = openInvoices.find((i) => i.id === e.target.value);
@@ -175,7 +313,7 @@ export default function ReceiptsPage() {
             ))}
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder={`Amount${outstanding ? ` (open ${outstanding})` : ''}`}
             value={form.amount}
             onChange={(e) => {
@@ -184,7 +322,7 @@ export default function ReceiptsPage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             type="date"
             value={form.receiptDate}
             onChange={(e) => {
@@ -210,7 +348,54 @@ export default function ReceiptsPage() {
         total={listQuery.data?.total}
         getRowKey={(r) => r.id}
         caption="Customer receipts"
+        rowActions={(r) => [
+          {
+            label: 'Print / Export',
+            icon: 'documentExport',
+            onSelect: () => void openDocument(r.id),
+          },
+        ]}
       />
+
+      <DocExport
+        open={exportOpen && detail !== null}
+        onClose={() => {
+          setExportOpen(false);
+        }}
+        documentKind="Payment Receipt"
+        documentTitle={detail ? `${detail.receiptNo} · ${detail.customer.displayName}` : ''}
+        companyName={companyName}
+        preview={
+          detail
+            ? {
+                documentNo: detail.receiptNo,
+                partyName: detail.customer.displayName,
+                total: modelTotal(documentModel(detail)),
+                meta: [
+                  `Customer No. ${detail.customer.customerNo}`,
+                  `Received ${new Date(detail.receiptDate).toLocaleDateString()}`,
+                ],
+                lineCount: detail.allocations.length,
+              }
+            : undefined
+        }
+        onPreview={() => {
+          setExportOpen(false);
+          setPreviewOpen(true);
+        }}
+        onDownload={onDownload}
+        onShare={() => void onShare()}
+      />
+
+      <PrintPreview
+        open={previewOpen}
+        title={detail ? `Receipt ${detail.receiptNo}` : 'Receipt'}
+        onClose={() => {
+          setPreviewOpen(false);
+        }}
+      >
+        {detail ? <DocumentSheet model={documentModel(detail)} /> : null}
+      </PrintPreview>
     </div>
   );
 }

@@ -216,7 +216,7 @@ export default function PayrollRunDetailPage() {
             ).map(([label, value]) => (
               <div
                 key={label}
-                className="rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-3"
+                className="rounded-lg border border-[var(--erp-border)] erp-frost p-3"
               >
                 <p className="text-xs text-[var(--erp-muted)]">{label}</p>
                 <p className="text-sm font-semibold">{value}</p>
@@ -234,7 +234,7 @@ export default function PayrollRunDetailPage() {
           </div>
 
           {run.exceptions && run.exceptions.length > 0 ? (
-            <div className="mb-6 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4">
+            <div className="mb-6 rounded-lg border border-[var(--erp-border)] erp-frost p-4">
               <p className="mb-2 text-sm font-semibold">Exceptions ({run.exceptions.length})</p>
               <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--erp-muted)]">
                 {run.exceptions.map((x, i) => (
@@ -262,7 +262,7 @@ export default function PayrollRunDetailPage() {
               <h3 className="mb-2 text-sm font-semibold">
                 Payslip lines · {openEntry.employee.displayName}
               </h3>
-              <ul className="divide-y divide-[var(--erp-border)] overflow-hidden rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] text-sm">
+              <ul className="divide-y divide-[var(--erp-border)] overflow-hidden rounded-lg border border-[var(--erp-border)] erp-frost text-sm">
                 {openEntry.lines.map((l) => (
                   <li key={l.id} className="flex items-center justify-between px-4 py-2">
                     <span>

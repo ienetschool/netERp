@@ -1,22 +1,15 @@
 export type StatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
-const TONE_LABELS: Record<StatusTone, string> = {
-  neutral: '●',
-  info: '◆',
-  success: '✓',
-  warning: '▲',
-  danger: '✕',
-};
-
-const toneClasses: Record<StatusTone, string> = {
-  neutral: 'bg-[var(--erp-surface-alt)] text-[var(--erp-muted)] border-[var(--erp-border)]',
-  info: 'bg-[var(--erp-info-bg,rgba(59,130,246,0.12))] text-[var(--erp-info)] border-[var(--erp-info)]',
+const TONE_CLASSES: Record<StatusTone, string> = {
+  neutral:
+    'bg-[var(--erp-surface-sunken)] text-[var(--erp-muted)] ring-1 ring-inset ring-[var(--erp-border)]',
+  info: 'bg-[var(--erp-info-bg)] text-[var(--erp-info)] ring-1 ring-inset ring-[var(--erp-info)]/20',
   success:
-    'bg-[var(--erp-success-bg,rgba(34,197,94,0.12))] text-[var(--erp-success)] border-[var(--erp-success)]',
+    'bg-[var(--erp-success-bg)] text-[var(--erp-success)] ring-1 ring-inset ring-[var(--erp-success)]/20',
   warning:
-    'bg-[var(--erp-warning-bg,rgba(234,179,8,0.12))] text-[var(--erp-warning)] border-[var(--erp-warning)]',
+    'bg-[var(--erp-warning-bg)] text-[var(--erp-warning)] ring-1 ring-inset ring-[var(--erp-warning)]/20',
   danger:
-    'bg-[var(--erp-danger-bg,rgba(239,68,68,0.12))] text-[var(--erp-danger)] border-[var(--erp-danger)]',
+    'bg-[var(--erp-danger-bg)] text-[var(--erp-danger)] ring-1 ring-inset ring-[var(--erp-danger)]/20',
 };
 
 export interface StatusBadgeProps {
@@ -27,7 +20,23 @@ export interface StatusBadgeProps {
 /** Maps common ERP statuses to semantic tones (UI-UX §11). */
 export function toneForStatus(status: string): StatusTone {
   const s = status.toUpperCase();
-  if (['APPROVED', 'POSTED', 'PAID', 'ACTIVE', 'SENT', 'OPEN', 'PRESENT'].includes(s))
+  if (
+    [
+      'APPROVED',
+      'POSTED',
+      'PAID',
+      'ACTIVE',
+      'SENT',
+      'OPEN',
+      'PRESENT',
+      'DELIVERED',
+      'RECEIVED',
+      'ISSUED',
+      'COMPLETED',
+      'AVAILABLE',
+      'CONFIRMED',
+    ].includes(s)
+  )
     return 'success';
   if (
     [
@@ -37,15 +46,37 @@ export function toneForStatus(status: string): StatusTone {
       'CALCULATED',
       'PROCESSING',
       'CLOSING',
+      'IN_PROGRESS',
+      'INVOICED',
+      'PENDING',
+      'UNREAD',
     ].includes(s)
   )
     return 'info';
   if (
-    ['CHANGES_REQUESTED', 'PARTIALLY_PAID', 'LATE', 'HALF_DAY', 'ON_LEAVE', 'SUSPENDED'].includes(s)
+    [
+      'CHANGES_REQUESTED',
+      'PARTIALLY_PAID',
+      'LATE',
+      'HALF_DAY',
+      'ON_LEAVE',
+      'SUSPENDED',
+      'DRAFT',
+      'REVERSED',
+    ].includes(s)
   )
     return 'warning';
   if (
-    ['REJECTED', 'CANCELLED', 'FAILED', 'OVERDUE', 'TERMINATED', 'LOCKED', 'DISABLED'].includes(s)
+    [
+      'REJECTED',
+      'CANCELLED',
+      'FAILED',
+      'OVERDUE',
+      'TERMINATED',
+      'LOCKED',
+      'DISABLED',
+      'EXPIRED',
+    ].includes(s)
   )
     return 'danger';
   return 'neutral';
@@ -56,9 +87,9 @@ export function StatusBadge({ status, tone }: StatusBadgeProps) {
   const label = status.replaceAll('_', ' ').toLowerCase();
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${toneClasses[resolvedTone]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.6875rem] font-semibold ${TONE_CLASSES[resolvedTone]}`}
     >
-      <span aria-hidden="true">{TONE_LABELS[resolvedTone]}</span>
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
       <span className="capitalize">{label}</span>
     </span>
   );

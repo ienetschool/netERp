@@ -5,6 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { DocExport } from '@/components/DocExport';
+import { DocumentSheet, type DocumentModel } from '@/components/DocumentSheet';
+import { PrintPreview } from '@/components/PrintPreview';
+import { downloadModel, modelBase, modelShareText, modelTotal } from '@/lib/document';
 import { usePermissions } from '@/lib/auth';
 import { Alert, StatusBadge } from '@erp/ui';
 
@@ -16,6 +20,28 @@ interface DeliveryRow {
   customer: { displayName: string };
   warehouse: { code: string; name: string } | null;
   lines: Array<{ id: string; quantity: string }>;
+}
+
+interface DeliveryLineDetail {
+  id: string;
+  quantity: string;
+  batchNo: string | null;
+  serialNo: string | null;
+  salesOrderLine: { description: string } | null;
+  product: { sku: string; name: string } | null;
+}
+
+interface DeliveryDetail {
+  id: string;
+  companyId: string;
+  deliveryNo: string;
+  deliveryDate: string;
+  status: string;
+  customer: { customerNo: string; displayName: string };
+  warehouse: { code: string; name: string };
+  salesOrder: { orderNo: string } | null;
+  currency: { code: string } | null;
+  lines: DeliveryLineDetail[];
 }
 
 interface SalesOrderOption {
@@ -51,7 +77,12 @@ export default function DeliveriesPage() {
   const queryClient = useQueryClient();
   const { can } = usePermissions();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [detail, setDetail] = useState<DeliveryDetail | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [loadingDoc, setLoadingDoc] = useState(false);
 
   const canCreate = can('sales.delivery.create');
 
@@ -127,28 +158,139 @@ export default function DeliveriesPage() {
     (o) => !form.companyId || o.companyId === form.companyId,
   );
 
+  const companyName = detail
+    ? (companiesQuery.data?.rows.find((c) => c.id === detail.companyId)?.name ?? '')
+    : '';
+
+  const amount = (value: string | number) =>
+    Number(value).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+  /** Flat document model shared by the print preview and the file exports. */
+  const documentModel = (delivery: DeliveryDetail): DocumentModel => {
+    const totalQuantity = delivery.lines.reduce((acc, l) => acc + Number(l.quantity), 0);
+    return {
+      companyName,
+      docType: 'Delivery Note',
+      docNo: delivery.deliveryNo,
+      status: delivery.status,
+      partyLabel: 'Deliver to',
+      partyName: delivery.customer.displayName,
+      partyMeta: [`Customer No. ${delivery.customer.customerNo}`],
+      facts: [
+        { label: 'Delivery date', value: new Date(delivery.deliveryDate).toLocaleDateString() },
+        { label: 'Sales order', value: delivery.salesOrder?.orderNo ?? '—' },
+        {
+          label: 'Warehouse',
+          value: `${delivery.warehouse.code} — ${delivery.warehouse.name}`,
+        },
+      ],
+      columns: ['Item', 'SKU', 'Quantity'],
+      lines: delivery.lines.map((line) => ({
+        id: line.id,
+        cells: [
+          line.salesOrderLine?.description ?? line.product?.name ?? 'Item',
+          line.product?.sku ?? '—',
+          amount(line.quantity),
+        ],
+      })),
+      totals: [{ label: 'Total quantity', value: amount(totalQuantity), emphasis: true }],
+    };
+  };
+
+  /** Loads the full delivery (header + lines) before opening the export dialog. */
+  const openDocument = async (id: string) => {
+    setError(null);
+    setNotice(null);
+    setLoadingDoc(true);
+    try {
+      const delivery = await api.get<DeliveryDetail>(`/sales/deliveries/${id}`);
+      setDetail(delivery);
+      setExportOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the delivery');
+    } finally {
+      setLoadingDoc(false);
+    }
+  };
+
+  const onDownload = (format: string) => {
+    if (!detail) return;
+    const model = documentModel(detail);
+    if (
+      !downloadModel(
+        model,
+        format as 'PDF' | 'EXCEL' | 'CSV',
+        modelBase('delivery', detail.deliveryNo),
+      )
+    ) {
+      // PDF is produced by the browser's print dialog, so hand off to the preview.
+      setExportOpen(false);
+      setPreviewOpen(true);
+      return;
+    }
+    setNotice(`Exported ${detail.deliveryNo} as ${format === 'EXCEL' ? 'Excel' : format}.`);
+  };
+
+  const onShare = async () => {
+    if (!detail) return;
+    const text = modelShareText(documentModel(detail));
+    // Not every browser exposes the Share API, and the DOM types mark it as
+    // required — read it as optional so the clipboard fallback stays reachable.
+    const nav = navigator as unknown as {
+      share?: (data: ShareData) => Promise<void>;
+    };
+    try {
+      if (nav.share) {
+        await nav.share({ title: `Delivery ${detail.deliveryNo}`, text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        setNotice('Delivery summary copied to the clipboard.');
+      }
+      setExportOpen(false);
+    } catch {
+      // The user dismissed the share sheet — nothing to report.
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="Deliveries"
         description="Posting a delivery issues stock at weighted-average cost and updates order fulfillment."
       />
-      {error ? (
-        <Alert tone="error" title="Error">
-          {error}
-        </Alert>
+      {error || notice || loadingDoc ? (
+        <div className="mb-4 space-y-2">
+          {error ? (
+            <Alert tone="error" title="Error">
+              {error}
+            </Alert>
+          ) : null}
+          {notice ? (
+            <Alert tone="success" title="Done">
+              {notice}
+            </Alert>
+          ) : null}
+          {loadingDoc ? (
+            <Alert tone="info" title="Loading delivery">
+              Fetching the delivery for preview…
+            </Alert>
+          ) : null}
+        </div>
       ) : null}
 
       {canCreate ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-5"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-5"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
           }}
         >
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.companyId}
             onChange={(e) => {
               setForm({ ...form, companyId: e.target.value, salesOrderId: '', warehouseId: '' });
@@ -163,7 +305,7 @@ export default function DeliveriesPage() {
             ))}
           </select>
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.salesOrderId}
             onChange={(e) => {
               const order = deliverable.find((o) => o.id === e.target.value);
@@ -183,7 +325,7 @@ export default function DeliveriesPage() {
             ))}
           </select>
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.warehouseId}
             onChange={(e) => {
               setForm({ ...form, warehouseId: e.target.value });
@@ -198,7 +340,7 @@ export default function DeliveriesPage() {
             ))}
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             type="date"
             value={form.deliveryDate}
             onChange={(e) => {
@@ -224,7 +366,54 @@ export default function DeliveriesPage() {
         total={listQuery.data?.total}
         getRowKey={(r) => r.id}
         caption="Deliveries"
+        rowActions={(r) => [
+          {
+            label: 'Print / Export',
+            icon: 'documentExport',
+            onSelect: () => void openDocument(r.id),
+          },
+        ]}
       />
+
+      <DocExport
+        open={exportOpen && detail !== null}
+        onClose={() => {
+          setExportOpen(false);
+        }}
+        documentKind="Delivery Note"
+        documentTitle={detail ? `${detail.deliveryNo} · ${detail.customer.displayName}` : ''}
+        companyName={companyName}
+        preview={
+          detail
+            ? {
+                documentNo: detail.deliveryNo,
+                partyName: detail.customer.displayName,
+                total: modelTotal(documentModel(detail)),
+                meta: [
+                  `Customer No. ${detail.customer.customerNo}`,
+                  `Delivered ${new Date(detail.deliveryDate).toLocaleDateString()}`,
+                ],
+                lineCount: detail.lines.length,
+              }
+            : undefined
+        }
+        onPreview={() => {
+          setExportOpen(false);
+          setPreviewOpen(true);
+        }}
+        onDownload={onDownload}
+        onShare={() => void onShare()}
+      />
+
+      <PrintPreview
+        open={previewOpen}
+        title={detail ? `Delivery ${detail.deliveryNo}` : 'Delivery'}
+        onClose={() => {
+          setPreviewOpen(false);
+        }}
+      >
+        {detail ? <DocumentSheet model={documentModel(detail)} /> : null}
+      </PrintPreview>
     </div>
   );
 }

@@ -1854,12 +1854,13 @@ Server:
 76.13.98.31
 
 Database:
-MariaDB
-Host: 76.13.98.31
-Port: 3306
-Database: erp
-Username: royalserp
+PostgreSQL (managed Supabase) — NOT the host's MariaDB.
+See docs/adr/0006-production-database-target.md and docs/deployment-runbook.md.
 ```
+
+The MariaDB instance on the host is **not** used by the application and no port is
+planned for it. Production is PostgreSQL-only, matching the Prisma datasource and the
+PostgreSQL-specific features the implementation depends on.
 
 ## 73.1 Server Access
 
@@ -1879,16 +1880,23 @@ If this credential has been exposed outside the intended secure environment, rot
 
 Use environment variables for the production database connection.
 
-Recommended production configuration:
+Production uses the managed Supabase Postgres project (see ADR-0006). The single
+required variable is `DATABASE_URL`, injected at deploy time into `apps/api/.env`
+on the host.
 
 ```text
-DB_HOST=76.13.98.31
-DB_PORT=3306
-DB_NAME=erp
-DB_USER=royalserp
-DB_PASSWORD=<stored-in-secure-secret-store>
-DATABASE_URL=<constructed-from-secure-database-credentials>
+DATABASE_URL=<injected at deploy time; never committed>
 ```
+
+The connection uses the Supabase session pooler (port 5432). Because the pooler caps
+session-mode clients, the URL must also carry an explicit Prisma connection cap:
+
+```text
+?sslmode=require&connect_timeout=20&pool_timeout=20&connection_limit=5
+```
+
+Omitting `connection_limit` lets Prisma open `cpus*2+1` connections per process and
+exhaust the pooler, producing `EMAXCONNSESSION` (HTTP 500) under load.
 
 Do not place the production database password directly in:
 
@@ -1972,17 +1980,20 @@ Never run destructive database commands against production without explicit auth
 
 ## 73.6 Database URL Construction
 
-The database URL must be generated from secure runtime variables rather than hard-coded.
+The database URL is generated from secure runtime variables rather than hard-coded.
 
 Conceptually:
 
 ```text
-mysql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
 ```
 
-Because the password may contain URL-sensitive characters, the application/deployment tooling must correctly URL-encode credentials when constructing a URI.
+Because the password may contain URL-sensitive characters, deployment tooling must
+correctly URL-encode credentials when constructing a URI. In practice the managed
+provider hands back a ready-made `postgresql://` URL, which is injected verbatim.
 
-Prefer individual environment variables if the framework supports them.
+The MySQL/MariaDB URL construction form described in earlier revisions of this section
+no longer applies — see §73.2.
 
 ## 73.7 Production Secret Policy
 
@@ -2029,3 +2040,42 @@ Verify the application after deployment.
 ```
 
 If credentials are required but unavailable through the secure environment, stop and request that the operator configure them securely rather than asking them to paste secrets into source files.
+
+## 73.9 Live deployment topology
+
+The application is live at `https://erp.ienet.online` on the Plesk host
+`srv1290338.hstgr.cloud` (`76.13.98.31`).
+
+```text
+Browser
+  → nginx (Plesk, :443, HTTP/2, Let's Encrypt cert)
+  → Apache (Plesk, 127.0.0.1:7081, SSL vhost)
+  → Next.js standalone  (pm2: neterp-web,  127.0.0.1:3000)
+  → NestJS API          (pm2: neterp-api,  127.0.0.1:4000, global prefix /api/v1)
+  → Supabase Postgres (session pooler, off-host)
+```
+
+The Next.js application fronts `/api/v1/*` with its own rewrite to the local API, so a
+single reverse-proxy rule to port 3000 is sufficient. No public port is opened for the
+API; both Node processes bind loopback only.
+
+Key paths on the host:
+
+```text
+Checkout / build root:  /var/www/vhosts/ienet.online/erp.ienet.online/app
+DocumentRoot:           /var/www/vhosts/ienet.online/erp.ienet.online
+Reverse-proxy config:   /var/www/vhosts/system/erp.ienet.online/conf/vhost_ssl.conf
+pm2 process list:       /root/.pm2/dump.pm2  (app/ecosystem.config.js)
+Logs:                   /var/log/neterp/{api,web}.{out,err}.log
+Uploads (local driver):  <checkout>/data/documents
+```
+
+Operational notes:
+
+- The Plesk-generated `httpd.conf` / `nginx.conf` must never be edited; custom Apache
+directives belong in `vhost_ssl.conf`, applied with
+  `httpdmng --reconfigure-domain erp.ienet.online`.
+- Only files inside the DocumentRoot's `app/` subdirectory hold the application. The
+  DocumentRoot root itself must never contain scripts, credentials or a stray `.git`.
+- The worker (BullMQ) is intentionally not deployed; it requires Redis.
+- See `docs/deployment-runbook.md` for the build/redeploy/rollback procedure.

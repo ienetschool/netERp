@@ -1,6 +1,12 @@
 # Deployment database conflict — MariaDB target vs PostgreSQL architecture
 
-**Status: UNRESOLVED — requires an architecture decision before production deployment.**
+**Status: RESOLVED (2026-10-06) — Option A adopted: PostgreSQL alongside.**
+
+The system owner chose **Option A**. Production runs PostgreSQL as the system of record
+(the managed Supabase project already in use, ref `<supabase-project-ref>`); the shared
+host that `erp.ienet.online` resolves to (`76.13.98.31`) only serves the application and
+reverse proxy. MariaDB is unused and **no port is planned**. The conflict below is kept
+for the record.
 
 ## The conflict
 

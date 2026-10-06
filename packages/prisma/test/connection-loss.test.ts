@@ -1,5 +1,18 @@
-import { describe, expect, it } from 'vitest';
-import { isConnectionLoss } from '../src/index.js';
+import { describe, expect, it, vi } from 'vitest';
+import { isConnectionLoss, PrismaService } from '../src/index.js';
+
+/**
+ * A `PrismaService` with just enough plumbing to exercise `withReconnect`: the
+ * real constructor opens a socket, which a unit test must not do.
+ */
+function fakeService(): { service: PrismaService; connects: () => number } {
+  const service = Object.create(PrismaService.prototype) as PrismaService;
+  let connects = 0;
+  (service as unknown as { $connect: () => Promise<void> }).$connect = async () => {
+    connects += 1;
+  };
+  return { service, connects: () => connects };
+}
 
 /**
  * `withReconnect` replays an operation exactly once when the pooled connection
@@ -29,5 +42,39 @@ describe('isConnectionLoss', () => {
     expect(isConnectionLoss(undefined)).toBe(false);
     expect(isConnectionLoss(null)).toBe(false);
     expect(isConnectionLoss('Server has closed the connection.')).toBe(false);
+  });
+});
+
+describe('PrismaService.withReconnect', () => {
+  it('reconnects and replays the read once when the pooled socket was dropped', async () => {
+    const { service, connects } = fakeService();
+    const operation = vi
+      .fn()
+      .mockRejectedValueOnce({ code: 'P1017', message: 'Server has closed the connection.' })
+      .mockResolvedValueOnce('ok');
+
+    await expect(service.withReconnect(operation)).resolves.toBe('ok');
+    expect(operation).toHaveBeenCalledTimes(2);
+    expect(connects()).toBe(1);
+  });
+
+  it('surfaces a genuine query failure without reconnecting', async () => {
+    const { service, connects } = fakeService();
+    const failure = { code: 'P2025', message: 'Record to update not found' };
+    const operation = vi.fn().mockRejectedValue(failure);
+
+    await expect(service.withReconnect(operation)).rejects.toBe(failure);
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(connects()).toBe(0);
+  });
+
+  it('does not loop forever when the replay also fails', async () => {
+    const { service, connects } = fakeService();
+    const failure = { code: 'P1001', message: "Can't reach database server" };
+    const operation = vi.fn().mockRejectedValue(failure);
+
+    await expect(service.withReconnect(operation)).rejects.toBe(failure);
+    expect(operation).toHaveBeenCalledTimes(2);
+    expect(connects()).toBe(1);
   });
 });

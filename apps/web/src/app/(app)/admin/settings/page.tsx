@@ -140,14 +140,14 @@ export default function SettingsPage() {
 
       {canEdit ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-5"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-5"
           onSubmit={(e) => {
             e.preventDefault();
             submit();
           }}
         >
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm md:col-span-2"
+            className="erp-input md:col-span-2"
             placeholder="key (e.g. approval.auto_approve_limit)"
             value={form.key}
             onChange={(e) => {
@@ -156,7 +156,7 @@ export default function SettingsPage() {
             required
           />
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.valueType}
             onChange={(e) => {
               setForm({ ...form, valueType: e.target.value });
@@ -168,7 +168,7 @@ export default function SettingsPage() {
             <option value="json">json</option>
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder={form.valueType === 'json' ? '{"enabled": true}' : 'value'}
             value={form.value}
             onChange={(e) => {

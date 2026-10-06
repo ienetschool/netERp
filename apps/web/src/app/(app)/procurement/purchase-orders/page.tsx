@@ -5,6 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { DocExport } from '@/components/DocExport';
+import { DocumentSheet, type DocumentModel } from '@/components/DocumentSheet';
+import { PrintPreview } from '@/components/PrintPreview';
+import { downloadModel, modelBase, modelShareText, modelTotal } from '@/lib/document';
 import { usePermissions } from '@/lib/auth';
 import { Alert, StatusBadge } from '@erp/ui';
 
@@ -17,6 +21,33 @@ interface PurchaseOrderRow {
   currencyId: string;
   supplier: { displayName: string };
   lines: Array<{ id: string; quantity: string; receivedQuantity: string }>;
+}
+
+interface PurchaseOrderLine {
+  id: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  discount: string;
+  taxAmount: string;
+  lineTotal: string;
+  receivedQuantity: string;
+}
+
+interface PurchaseOrderDetail {
+  id: string;
+  companyId: string;
+  poNo: string;
+  orderDate: string;
+  expectedDate: string | null;
+  status: string;
+  subtotal: string;
+  discountTotal: string;
+  taxTotal: string;
+  grandTotal: string;
+  supplier: { supplierNo: string; displayName: string };
+  lines: PurchaseOrderLine[];
+  receipts: Array<{ receiptNo: string; status: string; receiptDate: string }>;
 }
 
 interface SupplierOption {
@@ -44,7 +75,12 @@ export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
   const { can } = usePermissions();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [detail, setDetail] = useState<PurchaseOrderDetail | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [loadingDoc, setLoadingDoc] = useState(false);
 
   const canCreate = can('procurement.purchase_order.create');
   const canSubmit = can('procurement.purchase_order.submit');
@@ -121,31 +157,113 @@ export default function PurchaseOrdersPage() {
       },
     },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-    ...(canSubmit
-      ? [
-          {
-            key: 'actions',
-            header: '',
-            render: (r: PurchaseOrderRow) =>
-              r.status === 'DRAFT' ? (
-                <button
-                  className="text-xs text-[var(--erp-accent)]"
-                  disabled={submitMutation.isPending}
-                  onClick={() => {
-                    submitMutation.mutate(r.id);
-                  }}
-                >
-                  Submit
-                </button>
-              ) : null,
-          } satisfies DataTableColumn<PurchaseOrderRow>,
-        ]
-      : []),
   ];
 
   const supplierOptions = (suppliersQuery.data?.rows ?? []).filter(
     (s) => !form.companyId || s.companyId === form.companyId,
   );
+
+  const companyName = detail
+    ? (companiesQuery.data?.rows.find((c) => c.id === detail.companyId)?.name ?? '')
+    : '';
+
+  const amount = (value: string | number) =>
+    Number(value).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+  /** Flat document model shared by the print preview and the file exports. */
+  const documentModel = (order: PurchaseOrderDetail): DocumentModel => ({
+    companyName,
+    docType: 'Purchase Order',
+    docNo: order.poNo,
+    status: order.status,
+    partyLabel: 'Supplier',
+    partyName: order.supplier.displayName,
+    partyMeta: [`Supplier No. ${order.supplier.supplierNo}`],
+    facts: [
+      { label: 'Order date', value: new Date(order.orderDate).toLocaleDateString() },
+      {
+        label: 'Expected',
+        value: order.expectedDate ? new Date(order.expectedDate).toLocaleDateString() : 'As agreed',
+      },
+      { label: 'Goods receipts', value: String(order.receipts.length) },
+    ],
+    columns: ['Description', 'Qty', 'Received', 'Unit price', 'Tax', 'Amount'],
+    lines: order.lines.map((line) => ({
+      id: line.id,
+      cells: [
+        line.description,
+        amount(line.quantity),
+        amount(line.receivedQuantity),
+        amount(line.unitPrice),
+        amount(line.taxAmount),
+        amount(line.lineTotal),
+      ],
+    })),
+    totals: [
+      { label: 'Subtotal', value: amount(order.subtotal) },
+      { label: 'Discount', value: amount(order.discountTotal) },
+      { label: 'Tax', value: amount(order.taxTotal) },
+      { label: 'Grand total', value: amount(order.grandTotal), emphasis: true },
+    ],
+  });
+
+  /** Loads the full purchase order (header + lines) before opening the export dialog. */
+  const openDocument = async (id: string) => {
+    setError(null);
+    setNotice(null);
+    setLoadingDoc(true);
+    try {
+      const order = await api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${id}`);
+      setDetail(order);
+      setExportOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the purchase order');
+    } finally {
+      setLoadingDoc(false);
+    }
+  };
+
+  const onDownload = (format: string) => {
+    if (!detail) return;
+    const model = documentModel(detail);
+    if (
+      !downloadModel(
+        model,
+        format as 'PDF' | 'EXCEL' | 'CSV',
+        modelBase('purchase-order', detail.poNo),
+      )
+    ) {
+      // PDF is produced by the browser's print dialog, so hand off to the preview.
+      setExportOpen(false);
+      setPreviewOpen(true);
+      return;
+    }
+    setNotice(`Exported ${detail.poNo} as ${format === 'EXCEL' ? 'Excel' : format}.`);
+  };
+
+  const onShare = async () => {
+    if (!detail) return;
+    const text = modelShareText(documentModel(detail));
+    // Not every browser exposes the Share API, and the DOM types mark it as
+    // required — read it as optional so the clipboard fallback stays reachable.
+    const nav = navigator as unknown as {
+      share?: (data: ShareData) => Promise<void>;
+    };
+    try {
+      if (nav.share) {
+        await nav.share({ title: `Purchase order ${detail.poNo}`, text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        setNotice('Purchase order summary copied to the clipboard.');
+      }
+      setExportOpen(false);
+    } catch {
+      // The user dismissed the share sheet — nothing to report.
+    }
+  };
 
   return (
     <div>
@@ -153,15 +271,29 @@ export default function PurchaseOrdersPage() {
         title="Purchase orders"
         description="Orders route through approval; goods receipts update received quantities."
       />
-      {error ? (
-        <Alert tone="error" title="Error">
-          {error}
-        </Alert>
+      {error || notice || loadingDoc ? (
+        <div className="mb-4 space-y-2">
+          {error ? (
+            <Alert tone="error" title="Error">
+              {error}
+            </Alert>
+          ) : null}
+          {notice ? (
+            <Alert tone="success" title="Done">
+              {notice}
+            </Alert>
+          ) : null}
+          {loadingDoc ? (
+            <Alert tone="info" title="Loading purchase order">
+              Fetching the purchase order for preview…
+            </Alert>
+          ) : null}
+        </div>
       ) : null}
 
       {canCreate ? (
         <form
-          className="mb-6 space-y-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4"
+          className="mb-6 space-y-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
@@ -169,7 +301,7 @@ export default function PurchaseOrdersPage() {
         >
           <div className="grid gap-3 md:grid-cols-4">
             <select
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select"
               value={form.companyId}
               onChange={(e) => {
                 setForm({ ...form, companyId: e.target.value, supplierId: '' });
@@ -184,7 +316,7 @@ export default function PurchaseOrdersPage() {
               ))}
             </select>
             <select
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select"
               value={form.supplierId}
               onChange={(e) => {
                 setForm({ ...form, supplierId: e.target.value });
@@ -199,7 +331,7 @@ export default function PurchaseOrdersPage() {
               ))}
             </select>
             <input
-              className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-input"
               type="date"
               value={form.orderDate}
               onChange={(e) => {
@@ -212,7 +344,7 @@ export default function PurchaseOrdersPage() {
             {form.lines.map((line, i) => (
               <div key={i} className="grid items-center gap-2 md:grid-cols-4">
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs md:col-span-2"
+                  className="erp-input md:col-span-2"
                   placeholder="Description"
                   value={line.description}
                   onChange={(e) => {
@@ -223,7 +355,7 @@ export default function PurchaseOrdersPage() {
                   required
                 />
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-input"
                   type="number"
                   min="1"
                   step="1"
@@ -236,7 +368,7 @@ export default function PurchaseOrdersPage() {
                   required
                 />
                 <input
-                  className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-2 py-1.5 text-xs"
+                  className="erp-input"
                   placeholder="Unit price e.g. 4.50"
                   value={line.unitPrice}
                   onChange={(e) => {
@@ -288,7 +420,65 @@ export default function PurchaseOrdersPage() {
         total={listQuery.data?.total}
         getRowKey={(r) => r.id}
         caption="Purchase orders"
+        rowActions={(r) => [
+          {
+            label: 'Print / Export',
+            icon: 'documentExport',
+            onSelect: () => void openDocument(r.id),
+          },
+          ...(canSubmit && r.status === 'DRAFT'
+            ? [
+                {
+                  label: 'Submit for approval',
+                  icon: 'check' as const,
+                  onSelect: () => {
+                    submitMutation.mutate(r.id);
+                  },
+                },
+              ]
+            : []),
+        ]}
       />
+
+      <DocExport
+        open={exportOpen && detail !== null}
+        onClose={() => {
+          setExportOpen(false);
+        }}
+        documentKind="Purchase Order"
+        documentTitle={detail ? `${detail.poNo} · ${detail.supplier.displayName}` : ''}
+        companyName={companyName}
+        preview={
+          detail
+            ? {
+                documentNo: detail.poNo,
+                partyName: detail.supplier.displayName,
+                total: modelTotal(documentModel(detail)),
+                meta: [
+                  `Supplier No. ${detail.supplier.supplierNo}`,
+                  `Ordered ${new Date(detail.orderDate).toLocaleDateString()}`,
+                ],
+                lineCount: detail.lines.length,
+              }
+            : undefined
+        }
+        onPreview={() => {
+          setExportOpen(false);
+          setPreviewOpen(true);
+        }}
+        onDownload={onDownload}
+        onShare={() => void onShare()}
+      />
+
+      <PrintPreview
+        open={previewOpen}
+        title={detail ? `Purchase order ${detail.poNo}` : 'Purchase order'}
+        onClose={() => {
+          setPreviewOpen(false);
+        }}
+      >
+        {detail ? <DocumentSheet model={documentModel(detail)} /> : null}
+      </PrintPreview>
     </div>
   );
 }

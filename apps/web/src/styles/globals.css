@@ -3,42 +3,91 @@
 @tailwind utilities;
 
 :root {
-  --erp-bg: #f6f7f9;
+  /* Surfaces: cool, near-white canvas with white cards and a hairline border. */
+  --erp-bg: #f5f7fa;
   --erp-surface: #ffffff;
-  --erp-surface-alt: #eef0f3;
-  --erp-fg: #1a202c;
-  --erp-muted: #5f6b7a;
-  --erp-border: #d9dee5;
-  --erp-primary: #1d4ed8;
+  --erp-surface-alt: #f7f9fc;
+  --erp-surface-sunken: #eef2f8;
+  --erp-fg: #16213e;
+  --erp-fg-strong: #0b1533;
+  --erp-muted: #6b7a99;
+  --erp-muted-soft: #8a97b4;
+  --erp-border: #e4e9f2;
+  --erp-border-strong: #d3dbe8;
+
+  /* Brand: netERp primary blue, deep navy chrome (UI-UX spec §2). */
+  --erp-primary: #2563eb;
+  --erp-primary-hover: #1d4ed8;
+  --erp-primary-soft: #eff6ff;
   --erp-primary-fg: #ffffff;
-  --erp-success: #15803d;
-  --erp-success-bg: rgba(21, 128, 61, 0.1);
-  --erp-warning: #b45309;
-  --erp-warning-bg: rgba(180, 83, 9, 0.1);
-  --erp-danger: #b91c1c;
-  --erp-danger-bg: rgba(185, 28, 28, 0.08);
-  --erp-info: #1d4ed8;
-  --erp-info-bg: rgba(29, 78, 216, 0.08);
+  /* Alias for legacy usages across modules; semantically identical to primary. */
+  --erp-accent: var(--erp-primary);
+  --erp-navy: #081a2e;
+  --erp-navy-soft: #0f2b4a;
+  --erp-nav: #081a2e;
+  --erp-nav-hover: #12304f;
+  --erp-nav-active: #1b4a7d;
+  --erp-nav-fg: #a9bad4;
+  --erp-nav-fg-strong: #ffffff;
+
+  /* Glassmorphism surfaces — translucent + blurred for the modern layer. */
+  --erp-glass-bg: rgb(255 255 255 / 72%);
+  --erp-glass-bg-strong: rgb(255 255 255 / 88%);
+  --erp-glass-border: rgb(255 255 255 / 65%);
+  --erp-glass-shadow: 0 18px 48px rgb(8 26 46 / 14%);
+  --erp-glass-blur: 18px;
+
+  --erp-success: #0f9d58;
+  --erp-success-bg: #e7f7ef;
+  --erp-warning: #d97706;
+  --erp-warning-bg: #fdf3e3;
+  --erp-danger: #dc2626;
+  --erp-danger-bg: #fdeceb;
+  --erp-info: #2563eb;
+  --erp-info-bg: #e8f0fe;
+
+  --erp-shadow-xs: 0 1px 2px rgb(16 27 58 / 6%);
+  --erp-shadow-sm: 0 1px 3px rgb(16 27 58 / 8%), 0 1px 2px rgb(16 27 58 / 4%);
+  --erp-shadow-md: 0 4px 16px rgb(16 27 58 / 8%);
+  --erp-shadow-lg: 0 12px 32px rgb(16 27 58 / 12%);
+
+  --erp-radius: 12px;
+  --erp-sidebar-width: 248px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --erp-bg: #0f1115;
-    --erp-surface: #161a20;
-    --erp-surface-alt: #1f242c;
-    --erp-fg: #e6e9ee;
-    --erp-muted: #9aa4b2;
-    --erp-border: #2a313b;
-    --erp-primary: #4f7df7;
-    --erp-primary-fg: #0b0d10;
-    --erp-success: #4ade80;
-    --erp-success-bg: rgba(74, 222, 128, 0.12);
+    --erp-bg: #0b1220;
+    --erp-surface: #141d33;
+    --erp-surface-alt: #1a2440;
+    --erp-surface-sunken: #101830;
+    --erp-fg: #e8edf9;
+    --erp-fg-strong: #ffffff;
+    --erp-muted: #93a1c0;
+    --erp-muted-soft: #7b88a6;
+    --erp-border: #253052;
+    --erp-border-strong: #32406a;
+    --erp-primary: #3b82f6;
+    --erp-accent: var(--erp-primary);
+    --erp-primary-hover: #60a5fa;
+    --erp-primary-soft: #1b2a52;
+    --erp-navy: #050d1c;
+    --erp-navy-soft: #0d1c33;
+    --erp-nav: #050d1c;
+    --erp-nav-hover: #12233d;
+    --erp-nav-active: #1e3a63;
+    --erp-glass-bg: rgb(20 29 51 / 68%);
+    --erp-glass-bg-strong: rgb(20 29 51 / 86%);
+    --erp-glass-border: rgb(148 173 224 / 22%);
+    --erp-glass-shadow: 0 18px 48px rgb(0 0 0 / 45%);
+    --erp-success: #34d399;
+    --erp-success-bg: #10322a;
     --erp-warning: #fbbf24;
-    --erp-warning-bg: rgba(251, 191, 36, 0.12);
+    --erp-warning-bg: #3a2c10;
     --erp-danger: #f87171;
-    --erp-danger-bg: rgba(248, 113, 113, 0.12);
+    --erp-danger-bg: #3a1c1c;
     --erp-info: #60a5fa;
-    --erp-info-bg: rgba(96, 165, 250, 0.12);
+    --erp-info-bg: #17264a;
   }
 }
 
@@ -49,12 +98,762 @@ body {
 
 body {
   background-color: var(--erp-bg);
+  /* Fixed colour wash: gives the frosted glass surfaces something to pick up. */
+  background-image:
+    radial-gradient(52rem 34rem at 6% -12%, rgb(37 99 235 / 9%), transparent 62%),
+    radial-gradient(46rem 30rem at 102% -4%, rgb(124 58 237 / 8%), transparent 58%),
+    radial-gradient(40rem 28rem at 82% 104%, rgb(14 165 233 / 7%), transparent 60%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   color: var(--erp-fg);
   font-family: var(--font-inter, system-ui, -apple-system, 'Segoe UI', sans-serif);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
 *:focus-visible {
   outline: 2px solid var(--erp-primary);
   outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- surfaces */
+
+/*
+ * Frosted card. The surface stays nearly opaque so dense ERP tables and forms
+ * remain readable, while the colour wash behind it shows through a little.
+ * `color-mix` is used because Tailwind's `/opacity` cannot mix var() colours.
+ */
+.erp-card {
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius);
+  background: color-mix(in srgb, var(--erp-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: var(--erp-shadow-sm);
+  transition:
+    box-shadow 200ms ease,
+    border-color 200ms ease,
+    transform 200ms ease;
+}
+
+.erp-card:hover {
+  border-color: var(--erp-border-strong);
+  box-shadow: var(--erp-shadow-md);
+}
+
+.erp-card-pad {
+  padding: 1.125rem 1.25rem;
+}
+
+/*
+ * Frosted surface applied to module panels, filter trays and data tables — the
+ * places that used to paint a flat `bg-[var(--erp-surface)]`. It stays highly
+ * opaque so dense ERP data remains readable, while adding a light blur and a
+ * hint of the page wash bleeding through. Purely additive: it sets only the
+ * background + blur, so each element keeps its own border and radius.
+ */
+.erp-frost {
+  background: color-mix(in srgb, var(--erp-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  backdrop-filter: blur(12px) saturate(150%);
+}
+
+/*
+ * Button polish for the ~40 module actions that are still raw `<button>`s
+ * painted with the accent token. Rather than edit every page, target real
+ * buttons that carry that utility and give them hover, press and focus
+ * feedback plus a smooth transition. Scoped to `button[...]` so coloured
+ * badges/pills that share the utility are untouched.
+ */
+button[class*='bg-[var(--erp-accent)]'],
+button[class*='bg-[var(--erp-primary)]'],
+button[class*='bg-[var(--erp-danger'] {
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    filter 180ms ease;
+}
+
+button[class*='bg-[var(--erp-accent)]']:not(:disabled):hover,
+button[class*='bg-[var(--erp-primary)]']:not(:disabled):hover {
+  background-color: var(--erp-primary-hover);
+  box-shadow: var(--erp-shadow-sm);
+}
+
+button[class*='bg-[var(--erp-danger']:not(:disabled):hover {
+  filter: brightness(1.08);
+  box-shadow: var(--erp-shadow-sm);
+}
+
+button[class*='bg-[var(--erp-accent)]']:not(:disabled):active,
+button[class*='bg-[var(--erp-primary)]']:not(:disabled):active,
+button[class*='bg-[var(--erp-danger']:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.erp-panel-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--erp-fg-strong);
+  letter-spacing: -0.01em;
+}
+
+/* ------------------------------------------------------------ form controls */
+
+/*
+ * One class for every text control so the 29 modules that still use raw
+ * `<input>`/`<select>` markup pick up the new look without touching each page.
+ */
+.erp-input,
+.erp-select,
+.erp-textarea {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--erp-border-strong);
+  background-color: var(--erp-surface);
+  color: var(--erp-fg);
+  font-size: 0.875rem;
+  line-height: 1.35rem;
+  padding: 0.5rem 0.75rem;
+  box-shadow: var(--erp-shadow-xs);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.erp-textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.erp-select {
+  appearance: none;
+  padding-right: 2.25rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7a99' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  cursor: pointer;
+}
+
+.erp-input::placeholder,
+.erp-textarea::placeholder {
+  color: var(--erp-muted-soft);
+}
+
+.erp-input:hover:not(:disabled),
+.erp-select:hover:not(:disabled),
+.erp-textarea:hover:not(:disabled) {
+  border-color: var(--erp-primary);
+}
+
+.erp-input:focus,
+.erp-select:focus,
+.erp-textarea:focus {
+  border-color: var(--erp-primary);
+  box-shadow: 0 0 0 3px var(--erp-primary-soft);
+  outline: none;
+}
+
+.erp-input:disabled,
+.erp-select:disabled,
+.erp-textarea:disabled {
+  background-color: var(--erp-surface-sunken);
+  color: var(--erp-muted);
+  cursor: not-allowed;
+}
+
+.erp-field-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--erp-muted);
+  margin-bottom: 0.375rem;
+}
+
+.erp-field-hint {
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--erp-muted);
+}
+
+.erp-checkbox {
+  height: 1rem;
+  width: 1rem;
+  border-radius: 4px;
+  border: 1.5px solid var(--erp-border-strong);
+  background-color: var(--erp-surface);
+  cursor: pointer;
+}
+
+.erp-checkbox:checked {
+  background-color: var(--erp-primary);
+  border-color: var(--erp-primary);
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.erp-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.erp-table thead th {
+  position: sticky;
+  top: 0;
+  background-color: var(--erp-surface-alt);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--erp-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--erp-border);
+}
+
+.erp-table tbody td {
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--erp-border);
+  vertical-align: middle;
+}
+
+.erp-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.erp-table tbody tr:hover td {
+  background-color: var(--erp-surface-alt);
+}
+
+/* ---------------------------------------------------------------- pagination */
+
+.erp-page-button {
+  display: inline-flex;
+  min-width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--erp-border);
+  background-color: var(--erp-surface);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--erp-fg);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.erp-page-button:hover:not(:disabled) {
+  background-color: var(--erp-surface-alt);
+  border-color: var(--erp-border-strong);
+}
+
+.erp-page-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.erp-page-button-active,
+.erp-page-button-active:hover:not(:disabled) {
+  background-color: var(--erp-primary);
+  border-color: var(--erp-primary);
+  color: #fff;
+}
+
+/* ------------------------------------------------------------------- misc */
+
+.erp-skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 1400;
+  transform: translateY(-180%);
+  border-radius: 10px;
+  background: var(--erp-surface);
+  color: var(--erp-fg);
+  padding: 0.75rem 1rem;
+  box-shadow: var(--erp-shadow-lg);
+}
+
+.erp-skip-link:focus {
+  transform: translateY(0);
+}
+
+.erp-dialog-backdrop {
+  animation: erp-backdrop-in 120ms ease-out both;
+  /* Frosted scrim: the page behind softens instead of turning flat black. */
+  -webkit-backdrop-filter: blur(6px) saturate(130%);
+  backdrop-filter: blur(6px) saturate(130%);
+}
+
+.erp-dialog-panel {
+  animation: erp-panel-in 160ms ease-out both;
+  background: color-mix(in srgb, var(--erp-surface) 94%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+}
+
+.erp-mobile-nav {
+  animation: erp-nav-in 140ms ease-out both;
+}
+
+.erp-popover {
+  animation: erp-popover-in 120ms ease-out both;
+  background: color-mix(in srgb, var(--erp-surface) 94%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+}
+
+@keyframes erp-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes erp-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes erp-nav-in {
+  from {
+    opacity: 0.75;
+    transform: translateX(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes erp-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 639px) {
+  .erp-dialog-backdrop {
+    padding-top: 0.75rem;
+  }
+}
+
+/* ================================================================ glass === */
+/*
+ * Glassmorphism layer (netERp modern look). Frosted translucent surfaces.
+ * The blur is only visible over a colourful backdrop, so pair these with an
+ * aurora / gradient background (see .erp-aurora).
+ */
+
+.erp-glass {
+  background: var(--erp-glass-bg);
+  border: 1px solid var(--erp-glass-border);
+  -webkit-backdrop-filter: blur(var(--erp-glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--erp-glass-blur)) saturate(160%);
+  box-shadow: var(--erp-glass-shadow);
+}
+
+.erp-glass-strong {
+  background: var(--erp-glass-bg-strong);
+  border: 1px solid var(--erp-glass-border);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: var(--erp-glass-shadow);
+}
+
+/*
+ * Frosted content panel: the app surface tinted nearly opaque so it stays
+ * readable, with a hint of the backdrop bleeding through. Uses color-mix so it
+ * works with the hex design tokens (Tailwind's `/opacity` cannot, for var()).
+ */
+.erp-glass-panel {
+  background: color-mix(in srgb, var(--erp-surface) 97%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+  backdrop-filter: blur(26px) saturate(180%);
+}
+
+/* Muted frosted inset (demo-account tray, filter trays). */
+.erp-glass-inset {
+  background: color-mix(in srgb, var(--erp-surface-alt) 82%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  backdrop-filter: blur(12px) saturate(150%);
+}
+
+/* Frosted panel that sits on a dark/navy backdrop (login brand rail, dialogs). */
+.erp-glass-dark {
+  background: rgb(255 255 255 / 10%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+}
+
+/* Animated multi-stop gradient used behind glass surfaces. */
+.erp-aurora {
+  background:
+    radial-gradient(60rem 30rem at 12% 8%, rgb(37 99 235 / 45%), transparent 60%),
+    radial-gradient(48rem 26rem at 88% 18%, rgb(124 58 237 / 38%), transparent 62%),
+    radial-gradient(42rem 24rem at 70% 92%, rgb(14 165 233 / 34%), transparent 60%),
+    linear-gradient(160deg, var(--erp-navy) 0%, var(--erp-navy-soft) 55%, #10243d 100%);
+}
+
+.erp-gradient-text {
+  background: linear-gradient(92deg, var(--erp-primary) 0%, #7c3aed 60%, #0ea5e9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* =============================================================== motion === */
+
+.erp-rise {
+  animation: erp-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--erp-delay, 0ms);
+}
+
+.erp-fade {
+  animation: erp-fade 520ms ease-out both;
+  animation-delay: var(--erp-delay, 0ms);
+}
+
+.erp-slide-left {
+  animation: erp-slide-left 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--erp-delay, 0ms);
+}
+
+.erp-slide-right {
+  animation: erp-slide-right 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--erp-delay, 0ms);
+}
+
+/* Slow drifting orbs for decorative depth. */
+.erp-float {
+  animation: erp-float 14s ease-in-out infinite;
+}
+
+.erp-float-slow {
+  animation: erp-float 22s ease-in-out infinite reverse;
+}
+
+.erp-lift {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease;
+}
+
+.erp-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--erp-shadow-md);
+}
+
+@keyframes erp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes erp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes erp-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(-1.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes erp-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(1.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes erp-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(1.5rem, -1.75rem, 0) scale(1.06);
+  }
+}
+
+/* ========================================================== responsive === */
+
+/* Tables degrade to stacked cards on small screens unless a page opts out. */
+.erp-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 767px) {
+  .erp-hide-sm {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .erp-only-sm {
+    display: none !important;
+  }
+}
+
+/* Card grid helper used by list/workspace pages. */
+.erp-grid-auto {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+}
+
+/* ========================================================= page motion === */
+
+/*
+ * Applied to the routed content container. Re-keyed on navigation (see
+ * AppShell) so each page enters with a short rise-and-fade instead of snapping.
+ */
+.erp-page-enter {
+  animation: erp-page-enter 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes erp-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Sticky app chrome picks up the frosted treatment content scrolls beneath. */
+.erp-topbar {
+  background: color-mix(in srgb, var(--erp-surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  backdrop-filter: blur(18px) saturate(170%);
+}
+
+/* ======================================================== auth surfaces === */
+
+/*
+ * The sign-in screen always renders in its light brand palette, even when the
+ * OS is in dark mode, so it matches the approved reference design. Scoped to
+ * the auth page only — the application itself still follows the system theme.
+ */
+.erp-auth-light {
+  --erp-bg: #eef1f6;
+  --erp-surface: #ffffff;
+  --erp-surface-alt: #f7f9fc;
+  --erp-surface-sunken: #eef2f8;
+  --erp-fg: #16213e;
+  --erp-fg-strong: #0b1533;
+  --erp-muted: #6b7a99;
+  --erp-muted-soft: #8a97b4;
+  --erp-border: #e4e9f2;
+  --erp-border-strong: #d3dbe8;
+  --erp-primary: #2563eb;
+  --erp-primary-hover: #1d4ed8;
+  --erp-primary-soft: #eff6ff;
+  --erp-primary-fg: #ffffff;
+  --erp-danger: #dc2626;
+  --erp-glass-bg: rgb(255 255 255 / 82%);
+  --erp-glass-bg-strong: rgb(255 255 255 / 92%);
+  --erp-glass-border: rgb(255 255 255 / 75%);
+  --erp-glass-shadow: 0 30px 80px rgb(8 26 46 / 22%);
+  color: var(--erp-fg);
+}
+
+/* Soft, blurred studio backdrop like the reference sign-in mock. */
+.erp-auth-backdrop {
+  background:
+    radial-gradient(42rem 30rem at 18% 12%, rgb(37 99 235 / 22%), transparent 60%),
+    radial-gradient(38rem 26rem at 86% 78%, rgb(124 58 237 / 20%), transparent 62%),
+    linear-gradient(160deg, #eef2f8 0%, #e6ebf4 48%, #dfe6f2 100%);
+}
+
+/* ================================================================ print === */
+/*
+ * Document-grade print output: chrome disappears, surfaces go flat white, and
+ * rows/panels refuse to split across pages. Pages can opt elements in/out with
+ * .erp-print-only / .erp-no-print.
+ */
+.erp-print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #111827;
+    font-size: 11pt;
+  }
+
+  .erp-no-print,
+  .erp-skip-link,
+  .erp-topbar,
+  nav[aria-label='Primary'],
+  .erp-mobile-nav {
+    display: none !important;
+  }
+
+  .erp-print-only {
+    display: block !important;
+  }
+
+  /* Flatten frosted surfaces — ink on paper needs no blur or shadow. */
+  .erp-frost,
+  .erp-card,
+  .erp-glass,
+  .erp-glass-strong,
+  .erp-glass-panel,
+  .erp-glass-inset,
+  .erp-dialog-panel,
+  .erp-popover {
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: 1px solid #d8dee9 !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    break-inside: avoid;
+  }
+
+  .erp-page-enter {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  /* Serif-free, high-contrast tables that repeat their header on every page. */
+  .erp-table {
+    font-size: 9.5pt;
+  }
+
+  .erp-table thead th {
+    position: static;
+    background: #eef2f8 !important;
+    color: #111827 !important;
+    border-bottom: 1px solid #9aa6bb !important;
+  }
+
+  .erp-table tbody tr {
+    break-inside: avoid;
+  }
+
+  .erp-table tbody td {
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .erp-page-button {
+    display: none !important;
+  }
+
+  /*
+   * Print preview (PrintPreview) renders its sheet into a portal on <body>. While
+   * that preview is open the `erp-print-active` marker hides every other body
+   * child, so only the document prints — a plain Ctrl+P without the marker is
+   * unaffected and the rules above still apply.
+   */
+  body.erp-print-active > *:not(.erp-print-portal) {
+    display: none !important;
+  }
+
+  .erp-print-portal {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    background: #ffffff !important;
+  }
+
+  .erp-print-portal .erp-print-chrome {
+    display: none !important;
+  }
+
+  .erp-print-portal .erp-print-scroll {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .erp-print-portal .erp-print-sheet {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
+
+  .erp-doc {
+    color: #111827;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Keep the surround slightly cooler in dark mode without darkening the card. */
+  .erp-auth-backdrop {
+    background:
+      radial-gradient(42rem 30rem at 18% 12%, rgb(37 99 235 / 30%), transparent 60%),
+      radial-gradient(38rem 26rem at 86% 78%, rgb(124 58 237 / 26%), transparent 62%),
+      linear-gradient(160deg, #101a2e 0%, #0c1424 50%, #0a1120 100%);
+  }
 }

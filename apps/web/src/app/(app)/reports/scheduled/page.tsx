@@ -195,7 +195,7 @@ export default function ScheduledReportsPage() {
 
       {showCreate && canCreate ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-4"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-4"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate();
@@ -204,7 +204,7 @@ export default function ScheduledReportsPage() {
           <label className="text-xs text-[var(--erp-muted)] md:col-span-2">
             Report
             <select
-              className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select mt-1"
               value={form.reportDefinitionId}
               onChange={(e) => {
                 setForm({ ...form, reportDefinitionId: e.target.value });
@@ -223,7 +223,7 @@ export default function ScheduledReportsPage() {
           <label className="text-xs text-[var(--erp-muted)]">
             Company
             <select
-              className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select mt-1"
               value={form.companyId}
               onChange={(e) => {
                 setForm({ ...form, companyId: e.target.value });
@@ -241,7 +241,7 @@ export default function ScheduledReportsPage() {
           <label className="text-xs text-[var(--erp-muted)]">
             Frequency
             <select
-              className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select mt-1"
               value={form.frequency}
               onChange={(e) => {
                 setForm({ ...form, frequency: e.target.value as 'DAILY' | 'WEEKLY' | 'MONTHLY' });
@@ -257,7 +257,7 @@ export default function ScheduledReportsPage() {
             <label className="text-xs text-[var(--erp-muted)]">
               Day
               <select
-                className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                className="erp-select mt-1"
                 value={form.dayOfWeek}
                 onChange={(e) => {
                   setForm({ ...form, dayOfWeek: e.target.value });
@@ -279,7 +279,7 @@ export default function ScheduledReportsPage() {
                 type="number"
                 min={1}
                 max={31}
-                className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                className="erp-input mt-1"
                 value={form.dayOfMonth}
                 onChange={(e) => {
                   setForm({ ...form, dayOfMonth: e.target.value });
@@ -292,7 +292,7 @@ export default function ScheduledReportsPage() {
             Time
             <input
               type="time"
-              className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-input mt-1"
               value={form.time}
               onChange={(e) => {
                 setForm({ ...form, time: e.target.value });
@@ -304,7 +304,7 @@ export default function ScheduledReportsPage() {
           <label className="text-xs text-[var(--erp-muted)]">
             Time zone
             <select
-              className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select mt-1"
               value={form.timezone}
               onChange={(e) => {
                 setForm({ ...form, timezone: e.target.value });
@@ -328,7 +328,7 @@ export default function ScheduledReportsPage() {
           <label className="text-xs text-[var(--erp-muted)]">
             Format
             <select
-              className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select mt-1"
               value={form.outputFormat}
               onChange={(e) => {
                 setForm({ ...form, outputFormat: e.target.value as 'CSV' | 'JSON' });
@@ -342,7 +342,7 @@ export default function ScheduledReportsPage() {
           <label className="text-xs text-[var(--erp-muted)]">
             Delivery
             <select
-              className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+              className="erp-select mt-1"
               value={form.deliveryChannel}
               onChange={(e) => {
                 setForm({ ...form, deliveryChannel: e.target.value as 'IN_APP' | 'EMAIL' });
@@ -365,7 +365,7 @@ export default function ScheduledReportsPage() {
         </form>
       ) : null}
 
-      <div className="overflow-x-auto rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)]">
+      <div className="overflow-x-auto rounded-lg border border-[var(--erp-border)] erp-frost">
         {listQuery.isLoading ? (
           <p className="p-4 text-sm">Loading…</p>
         ) : listQuery.error ? (

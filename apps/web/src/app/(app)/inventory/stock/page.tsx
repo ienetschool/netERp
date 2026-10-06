@@ -101,7 +101,7 @@ export default function StockPage() {
         </h2>
         <select
           aria-label="Filter movements by warehouse"
-          className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+          className="erp-select"
           value={warehouseFilter}
           onChange={(e) => {
             setWarehouseFilter(e.target.value);

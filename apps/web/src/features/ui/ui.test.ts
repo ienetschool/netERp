@@ -7,6 +7,6 @@ describe('toneForStatus', () => {
     expect(toneForStatus('PENDING_APPROVAL')).toBe('info');
     expect(toneForStatus('REJECTED')).toBe('danger');
     expect(toneForStatus('CHANGES_REQUESTED')).toBe('warning');
-    expect(toneForStatus('DRAFT')).toBe('neutral');
+    expect(toneForStatus('DRAFT')).toBe('warning');
   });
 });

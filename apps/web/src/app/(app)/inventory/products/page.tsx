@@ -94,14 +94,14 @@ export default function ProductsPage() {
 
       {canCreate ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-5"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-5"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
           }}
         >
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.companyId}
             onChange={(e) => {
               setForm({ ...form, companyId: e.target.value });
@@ -116,7 +116,7 @@ export default function ProductsPage() {
             ))}
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="SKU"
             value={form.sku}
             onChange={(e) => {
@@ -125,7 +125,7 @@ export default function ProductsPage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Product name"
             value={form.name}
             onChange={(e) => {
@@ -134,7 +134,7 @@ export default function ProductsPage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Standard cost"
             value={form.standardCost}
             onChange={(e) => {

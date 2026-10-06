@@ -11,6 +11,7 @@ import {
 } from '../common/errors.js';
 import { AuditService } from '../common/audit.service.js';
 import type { RequestPrincipal } from '../common/request-context.js';
+import { resolveAccess } from './principal.js';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
@@ -23,16 +24,14 @@ export interface TokenPair {
   accessTokenExpiresIn: number;
 }
 
+/**
+ * Identity only. Permissions and scope are resolved per request by JwtAuthGuard
+ * — embedding them here produced a ~40 KB token that HTTP stacks reject with 431.
+ */
 interface AccessTokenClaims {
   sub: string;
   email: string;
   sid: string;
-  permissions: string[];
-  companyIds: string[] | null;
-  branchIds: string[] | null;
-  departmentIds: string[] | null;
-  warehouseIds: string[] | null;
-  sa: boolean;
 }
 
 @Injectable()
@@ -49,9 +48,11 @@ export class AuthService {
     email: string,
     password: string,
   ): Promise<{ user: { id: string; email: string } }> {
-    const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
+    const user = await this.prisma.withReconnect((db) =>
+      db.user.findUnique({
+        where: { email: email.toLowerCase().trim() },
+      }),
+    );
     if (!user) {
       // Constant-ish time: still run a hash comparison to blunt user enumeration.
       await argon2.verify(
@@ -110,19 +111,11 @@ export class AuthService {
     user: { id: string; email: string },
     meta: { ip?: string | null; userAgent?: string | null },
   ): Promise<TokenPair> {
-    const principal = await this.buildPrincipal(user.id);
-
     const sessionId = randomBytes(16).toString('hex');
     const accessToken = await this.jwt.signAsync({
       sub: user.id,
       email: user.email,
       sid: sessionId,
-      permissions: principal.permissions,
-      companyIds: principal.companyIds,
-      branchIds: principal.branchIds,
-      departmentIds: principal.departmentIds,
-      warehouseIds: principal.warehouseIds,
-      sa: principal.isSuperAdmin,
     } satisfies AccessTokenClaims);
 
     const refreshToken = randomBytes(48).toString('base64url');
@@ -155,69 +148,27 @@ export class AuthService {
   }
 
   async buildPrincipal(userId: string): Promise<RequestPrincipal & { isSuperAdmin: boolean }> {
-    const assignments = await this.prisma.userRoleAssignment.findMany({
-      where: {
-        userId,
-        OR: [{ validTo: null }, { validTo: { gt: new Date() } }],
-      },
-      include: { role: { include: { permissions: { include: { permission: true } } } } },
-    });
-
-    const permissionSet = new Set<string>();
-    let isSuperAdmin = false;
-    for (const assignment of assignments) {
-      if (assignment.role.code === 'SUPER_ADMIN') isSuperAdmin = true;
-      for (const rp of assignment.role.permissions) {
-        permissionSet.add(
-          `${rp.permission.module}.${rp.permission.resource}.${rp.permission.action}`,
-        );
-      }
-    }
-
-    // Scope: SUPER_ADMIN and unscoped assignments get platform-wide scope (null = all).
-    const scopedAssignments = assignments.filter(
-      (a) => a.companyId !== null || a.branchId !== null,
+    const assignments = await this.prisma.withReconnect((db) =>
+      db.userRoleAssignment.findMany({
+        where: {
+          userId,
+          OR: [{ validTo: null }, { validTo: { gt: new Date() } }],
+        },
+        include: { role: { include: { permissions: { include: { permission: true } } } } },
+      }),
     );
-    const isPlatformScope = isSuperAdmin || scopedAssignments.length === 0;
 
-    return {
-      userId,
-      email: '',
-      permissions: [...permissionSet].sort(),
-      companyIds: isPlatformScope
-        ? null
-        : [...new Set(scopedAssignments.map((a) => a.companyId as string))],
-      branchIds: isPlatformScope
-        ? null
-        : [
-            ...new Set(
-              scopedAssignments.map((a) => a.branchId).filter((b): b is string => b !== null),
-            ),
-          ],
-      departmentIds: isPlatformScope
-        ? null
-        : [
-            ...new Set(
-              scopedAssignments.map((a) => a.departmentId).filter((d): d is string => d !== null),
-            ),
-          ],
-      warehouseIds: isPlatformScope
-        ? null
-        : [
-            ...new Set(
-              scopedAssignments.map((a) => a.warehouseId).filter((w): w is string => w !== null),
-            ),
-          ],
-      isSuperAdmin,
-    };
+    return { userId, email: '', ...resolveAccess(assignments) };
   }
 
   async rotateRefreshToken(presentedToken: string): Promise<{ userId: string; tokens: TokenPair }> {
     const tokenHash = this.hashToken(presentedToken);
-    const stored = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash },
-      include: { user: true },
-    });
+    const stored = await this.prisma.withReconnect((db) =>
+      db.refreshToken.findUnique({
+        where: { tokenHash },
+        include: { user: true },
+      }),
+    );
 
     if (!stored) {
       throw new AuthenticationError('Invalid refresh token');
@@ -245,7 +196,9 @@ export class AuthService {
     const tokens = await this.issueTokenPair(user, {});
 
     const newHash = this.hashToken(tokens.refreshToken);
-    const created = await this.prisma.refreshToken.findUnique({ where: { tokenHash: newHash } });
+    const created = await this.prisma.withReconnect((db) =>
+      db.refreshToken.findUnique({ where: { tokenHash: newHash } }),
+    );
     if (!created) throw new BusinessRuleError('Refresh token persistence failed');
 
     await this.prisma.$transaction([
@@ -274,7 +227,9 @@ export class AuthService {
     currentPassword: string,
     newPassword: string,
   ): Promise<void> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.withReconnect((db) =>
+      db.user.findUnique({ where: { id: userId } }),
+    );
     if (!user) throw new NotFoundError('User not found');
     const valid = await argon2.verify(user.passwordHash, currentPassword);
     if (!valid) {
@@ -306,7 +261,9 @@ export class AuthService {
 
   async getPrincipalForUser(userId: string): Promise<RequestPrincipal & { isSuperAdmin: boolean }> {
     const principal = await this.buildPrincipal(userId);
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.withReconnect((db) =>
+      db.user.findUnique({ where: { id: userId } }),
+    );
     if (!user) throw new NotFoundError('User not found');
     principal.email = user.email;
     if (user.status !== 'ACTIVE') {

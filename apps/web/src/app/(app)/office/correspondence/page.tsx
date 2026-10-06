@@ -150,7 +150,7 @@ export default function CorrespondencePage() {
         canEdit && r.status !== 'CLOSED' ? (
           <span className="flex items-center gap-1">
             <select
-              className="rounded border border-[var(--erp-border)] bg-[var(--erp-bg)] px-1 py-1 text-xs"
+              className="erp-select px-1"
               value=""
               onChange={(e) => {
                 if (e.target.value) {
@@ -194,14 +194,14 @@ export default function CorrespondencePage() {
 
       {canCreate ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-6"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-6"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
           }}
         >
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.companyId}
             onChange={(e) => {
               setForm({ ...form, companyId: e.target.value });
@@ -216,7 +216,7 @@ export default function CorrespondencePage() {
             ))}
           </select>
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.direction}
             onChange={(e) => {
               setForm({ ...form, direction: e.target.value });
@@ -227,7 +227,7 @@ export default function CorrespondencePage() {
             <option value="INTERNAL">Internal</option>
           </select>
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.correspondenceType}
             onChange={(e) => {
               setForm({ ...form, correspondenceType: e.target.value });
@@ -240,7 +240,7 @@ export default function CorrespondencePage() {
             <option value="OTHER">Other</option>
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Sender"
             value={form.sender}
             onChange={(e) => {
@@ -249,7 +249,7 @@ export default function CorrespondencePage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Recipient"
             value={form.recipient}
             onChange={(e) => {
@@ -258,7 +258,7 @@ export default function CorrespondencePage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             placeholder="Subject"
             value={form.subject}
             onChange={(e) => {

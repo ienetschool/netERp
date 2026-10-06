@@ -1,11 +1,15 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiList } from '@/lib/api';
 import { PageHeader } from '@/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
+import { DocExport } from '@/components/DocExport';
+import { DocumentSheet, type DocumentModel } from '@/components/DocumentSheet';
+import { PrintPreview } from '@/components/PrintPreview';
+import { downloadModel, modelBase, modelShareText, modelTotal } from '@/lib/document';
 import { usePermissions } from '@/lib/auth';
 import { Alert, StatusBadge } from '@erp/ui';
 
@@ -23,6 +27,32 @@ interface PayrollRunRow {
   payGroup: { name: string; frequency: string };
   currency: { code: string };
   _count: { entries: number };
+}
+
+interface PayrollEntry {
+  id: string;
+  grossAmount: string;
+  deductionAmount: string;
+  netAmount: string;
+  employerCost: string;
+  employee: { employeeNo: string; displayName: string };
+}
+
+interface PayrollRunDetail {
+  id: string;
+  companyId: string;
+  periodStart: string;
+  periodEnd: string;
+  paymentDate: string;
+  status: string;
+  employeeCount: number;
+  totalGross: string;
+  totalDeductions: string;
+  totalNet: string;
+  totalEmployerCost: string;
+  payGroup: { name: string; frequency: string };
+  currency: { code: string };
+  entries: PayrollEntry[];
 }
 
 interface PayGroupOption {
@@ -58,9 +88,15 @@ function lastOfMonth(): string {
 
 /** Payroll runs (PRD Stage 4): create, calculate, submit for approval. */
 export default function PayrollRunsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { can } = usePermissions();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [detail, setDetail] = useState<PayrollRunDetail | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [loadingDoc, setLoadingDoc] = useState(false);
   const [form, setForm] = useState({
     ...EMPTY_FORM,
     periodStart: firstOfMonth(),
@@ -133,45 +169,6 @@ export default function PayrollRunsPage() {
     { key: 'totalNet', header: 'Net', render: (r) => r.totalNet },
     { key: 'totalEmployerCost', header: 'Employer cost', render: (r) => r.totalEmployerCost },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-    {
-      key: 'actions',
-      header: 'Actions',
-      render: (r) => (
-        <span className="flex gap-2 text-xs">
-          {canCalculate && (r.status === 'DRAFT' || r.status === 'CALCULATED') ? (
-            <button
-              className="text-[var(--erp-accent)]"
-              disabled={actionMutation.isPending}
-              onClick={() => {
-                actionMutation.mutate({ id: r.id, action: 'calculate' });
-              }}
-            >
-              Calculate
-            </button>
-          ) : null}
-          {canSubmit && r.status === 'CALCULATED' ? (
-            <Link className="text-[var(--erp-accent)]" href={`/payroll/runs/${r.id}`}>
-              Review & submit
-            </Link>
-          ) : null}
-          {canCancel &&
-          (r.status === 'DRAFT' || r.status === 'CALCULATED' || r.status === 'PENDING_APPROVAL') ? (
-            <button
-              className="text-[var(--erp-muted)]"
-              disabled={actionMutation.isPending}
-              onClick={() => {
-                actionMutation.mutate({ id: r.id, action: 'cancel' });
-              }}
-            >
-              Cancel
-            </button>
-          ) : null}
-          <Link className="text-[var(--erp-accent)]" href={`/payroll/runs/${r.id}`}>
-            Open
-          </Link>
-        </span>
-      ),
-    },
   ];
 
   const selectedCompany = form.companyId;
@@ -179,28 +176,145 @@ export default function PayrollRunsPage() {
     (g) => !selectedCompany || g.companyId === selectedCompany,
   );
 
+  const companyName = detail
+    ? (companiesQuery.data?.rows.find((c) => c.id === detail.companyId)?.name ?? '')
+    : '';
+
+  const amount = (value: string | number) =>
+    Number(value).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+  /** Flat document model shared by the print preview and the file exports. */
+  const documentModel = (run: PayrollRunDetail): DocumentModel => ({
+    companyName,
+    docType: 'Payroll Register',
+    docNo: `PAY-${run.periodStart.slice(0, 7)}`,
+    status: run.status,
+    partyLabel: 'Pay group',
+    partyName: run.payGroup.name,
+    partyMeta: [`Frequency ${run.payGroup.frequency}`, `Currency ${run.currency.code}`],
+    facts: [
+      {
+        label: 'Period',
+        value: `${new Date(run.periodStart).toLocaleDateString()} – ${new Date(
+          run.periodEnd,
+        ).toLocaleDateString()}`,
+      },
+      { label: 'Payment date', value: new Date(run.paymentDate).toLocaleDateString() },
+      { label: 'Employees', value: String(run.employeeCount) },
+    ],
+    columns: ['Employee', 'Gross', 'Deductions', 'Net', 'Employer cost'],
+    lines: run.entries.map((entry) => ({
+      id: entry.id,
+      cells: [
+        `${entry.employee.employeeNo} · ${entry.employee.displayName}`,
+        amount(entry.grossAmount),
+        amount(entry.deductionAmount),
+        amount(entry.netAmount),
+        amount(entry.employerCost),
+      ],
+    })),
+    totals: [
+      { label: 'Total gross', value: amount(run.totalGross) },
+      { label: 'Total deductions', value: amount(run.totalDeductions) },
+      { label: 'Total net', value: amount(run.totalNet), emphasis: true },
+      { label: 'Employer cost', value: amount(run.totalEmployerCost) },
+    ],
+  });
+
+  /** Loads the full run (header + payslip entries) before opening the export dialog. */
+  const openDocument = async (id: string) => {
+    setError(null);
+    setNotice(null);
+    setLoadingDoc(true);
+    try {
+      const run = await api.get<PayrollRunDetail>(`/payroll/runs/${id}`);
+      setDetail(run);
+      setExportOpen(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load the payroll run');
+    } finally {
+      setLoadingDoc(false);
+    }
+  };
+
+  const onDownload = (format: string) => {
+    if (!detail) return;
+    const model = documentModel(detail);
+    if (
+      !downloadModel(
+        model,
+        format as 'PDF' | 'EXCEL' | 'CSV',
+        modelBase('payroll-run', `${detail.periodStart.slice(0, 7)}-${detail.payGroup.name}`),
+      )
+    ) {
+      // PDF is produced by the browser's print dialog, so hand off to the preview.
+      setExportOpen(false);
+      setPreviewOpen(true);
+      return;
+    }
+    setNotice(`Exported payroll register as ${format === 'EXCEL' ? 'Excel' : format}.`);
+  };
+
+  const onShare = async () => {
+    if (!detail) return;
+    const text = modelShareText(documentModel(detail));
+    // Not every browser exposes the Share API, and the DOM types mark it as
+    // required — read it as optional so the clipboard fallback stays reachable.
+    const nav = navigator as unknown as {
+      share?: (data: ShareData) => Promise<void>;
+    };
+    try {
+      if (nav.share) {
+        await nav.share({ title: `Payroll register ${detail.periodStart.slice(0, 7)}`, text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        setNotice('Payroll register summary copied to the clipboard.');
+      }
+      setExportOpen(false);
+    } catch {
+      // The user dismissed the share sheet — nothing to report.
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="Payroll runs"
         description="Calculate, review, approve through the finance inbox, and post payroll periods."
       />
-      {error ? (
-        <Alert tone="error" title="Error">
-          {error}
-        </Alert>
+      {error || notice || loadingDoc ? (
+        <div className="mb-4 space-y-2">
+          {error ? (
+            <Alert tone="error" title="Error">
+              {error}
+            </Alert>
+          ) : null}
+          {notice ? (
+            <Alert tone="success" title="Done">
+              {notice}
+            </Alert>
+          ) : null}
+          {loadingDoc ? (
+            <Alert tone="info" title="Loading payroll run">
+              Fetching the run for preview…
+            </Alert>
+          ) : null}
+        </div>
       ) : null}
 
       {canCreate ? (
         <form
-          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4 md:grid-cols-6"
+          className="mb-6 grid gap-3 rounded-lg border border-[var(--erp-border)] erp-frost p-4 md:grid-cols-6"
           onSubmit={(e) => {
             e.preventDefault();
             createMutation.mutate(form);
           }}
         >
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.companyId}
             onChange={(e) => {
               setForm({ ...form, companyId: e.target.value, payGroupId: '' });
@@ -215,7 +329,7 @@ export default function PayrollRunsPage() {
             ))}
           </select>
           <select
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-select"
             value={form.payGroupId}
             onChange={(e) => {
               setForm({ ...form, payGroupId: e.target.value });
@@ -230,7 +344,7 @@ export default function PayrollRunsPage() {
             ))}
           </select>
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             type="date"
             value={form.periodStart}
             onChange={(e) => {
@@ -239,7 +353,7 @@ export default function PayrollRunsPage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             type="date"
             value={form.periodEnd}
             onChange={(e) => {
@@ -248,7 +362,7 @@ export default function PayrollRunsPage() {
             required
           />
           <input
-            className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+            className="erp-input"
             type="date"
             value={form.paymentDate}
             onChange={(e) => {
@@ -274,7 +388,96 @@ export default function PayrollRunsPage() {
         total={listQuery.data?.total}
         getRowKey={(r) => r.id}
         caption="Payroll runs"
+        rowActions={(r) => [
+          {
+            label: 'Print / Export',
+            icon: 'documentExport',
+            onSelect: () => void openDocument(r.id),
+          },
+          {
+            label: 'Open',
+            icon: 'eye',
+            onSelect: () => {
+              router.push(`/payroll/runs/${r.id}`);
+            },
+          },
+          ...(canCalculate && (r.status === 'DRAFT' || r.status === 'CALCULATED')
+            ? [
+                {
+                  label: 'Calculate',
+                  icon: 'refresh' as const,
+                  onSelect: () => {
+                    actionMutation.mutate({ id: r.id, action: 'calculate' });
+                  },
+                },
+              ]
+            : []),
+          ...(canSubmit && r.status === 'CALCULATED'
+            ? [
+                {
+                  label: 'Review & submit',
+                  icon: 'check' as const,
+                  onSelect: () => {
+                    router.push(`/payroll/runs/${r.id}`);
+                  },
+                },
+              ]
+            : []),
+          ...(canCancel &&
+          (r.status === 'DRAFT' || r.status === 'CALCULATED' || r.status === 'PENDING_APPROVAL')
+            ? [
+                {
+                  label: 'Cancel run',
+                  icon: 'close' as const,
+                  tone: 'danger' as const,
+                  onSelect: () => {
+                    actionMutation.mutate({ id: r.id, action: 'cancel' });
+                  },
+                },
+              ]
+            : []),
+        ]}
       />
+
+      <DocExport
+        open={exportOpen && detail !== null}
+        onClose={() => {
+          setExportOpen(false);
+        }}
+        documentKind="Payroll Register"
+        documentTitle={detail ? `${detail.payGroup.name} · ${detail.periodStart.slice(0, 7)}` : ''}
+        companyName={companyName}
+        preview={
+          detail
+            ? {
+                documentNo: `PAY-${detail.periodStart.slice(0, 7)}`,
+                partyName: detail.payGroup.name,
+                total: modelTotal(documentModel(detail)),
+                meta: [
+                  `${detail.employeeCount} employees`,
+                  `Paid ${new Date(detail.paymentDate).toLocaleDateString()}`,
+                ],
+                lineCount: detail.entries.length,
+              }
+            : undefined
+        }
+        onPreview={() => {
+          setExportOpen(false);
+          setPreviewOpen(true);
+        }}
+        onDownload={onDownload}
+        onShare={() => void onShare()}
+      />
+
+      <PrintPreview
+        open={previewOpen}
+        title={detail ? `Payroll register ${detail.periodStart.slice(0, 7)}` : 'Payroll register'}
+        onClose={() => {
+          setPreviewOpen(false);
+        }}
+      >
+        {detail ? <DocumentSheet model={documentModel(detail)} /> : null}
+      </PrintPreview>
     </div>
   );
 }

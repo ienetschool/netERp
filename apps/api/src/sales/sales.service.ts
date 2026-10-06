@@ -747,6 +747,27 @@ export class SalesService {
     return { rows, total };
   }
 
+  async getDelivery(principal: Principal, id: string) {
+    const delivery = await this.prisma.delivery.findUnique({
+      where: { id },
+      include: {
+        customer: { select: { customerNo: true, displayName: true } },
+        warehouse: { select: { code: true, name: true } },
+        salesOrder: { select: { orderNo: true } },
+        currency: { select: { code: true } },
+        lines: {
+          include: {
+            salesOrderLine: { select: { description: true } },
+            product: { select: { sku: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!delivery) throw new NotFoundError('Delivery not found');
+    this.scopeGuard(principal, delivery.companyId);
+    return delivery;
+  }
+
   // ---- Customer invoices --------------------------------------------------------
 
   async createCustomerInvoice(
@@ -1125,6 +1146,26 @@ export class SalesService {
       this.prisma,
     );
     return payment;
+  }
+
+  async getCustomerReceipt(principal: Principal, id: string) {
+    const receipt = await this.prisma.customerReceipt.findUnique({
+      where: { id },
+      include: {
+        customer: { select: { customerNo: true, displayName: true } },
+        currency: { select: { code: true } },
+        allocations: {
+          include: {
+            invoice: {
+              select: { invoiceNo: true, grandTotal: true, paidAmount: true, status: true },
+            },
+          },
+        },
+      },
+    });
+    if (!receipt) throw new NotFoundError('Receipt not found');
+    this.scopeGuard(principal, receipt.companyId);
+    return receipt;
   }
 
   async listCustomerReceipts(principal: Principal, query: { page: number; pageSize: number }) {

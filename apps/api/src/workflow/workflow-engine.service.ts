@@ -457,34 +457,39 @@ export class WorkflowEngineService {
 
   /** Inbox: tasks assigned to the user directly or via one of their roles. */
   async inboxForUser(userId: string, status?: string): Promise<ApprovalTaskView[]> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { roles: { select: { roleId: true } } },
-    });
+    // Read-only inbox: safe to replay once if the pooled socket was dropped.
+    const user = await this.prisma.withReconnect((db) =>
+      db.user.findUnique({
+        where: { id: userId },
+        include: { roles: { select: { roleId: true } } },
+      }),
+    );
     if (!user) throw new NotFoundError('User not found');
     const roleIds = user.roles.map((a) => a.roleId);
 
-    const tasks = await this.prisma.approvalTask.findMany({
-      where: {
-        ...(status ? { status } : {}),
-        OR: [
-          { approverType: 'USER', approverId: userId },
-          { approverType: 'ROLE', approverId: { in: roleIds } },
-        ],
-      },
-      include: {
-        instance: {
-          select: {
-            entityType: true,
-            entityId: true,
-            currentState: true,
-            definition: { select: { name: true } },
+    const tasks = await this.prisma.withReconnect((db) =>
+      db.approvalTask.findMany({
+        where: {
+          ...(status ? { status } : {}),
+          OR: [
+            { approverType: 'USER', approverId: userId },
+            { approverType: 'ROLE', approverId: { in: roleIds } },
+          ],
+        },
+        include: {
+          instance: {
+            select: {
+              entityType: true,
+              entityId: true,
+              currentState: true,
+              definition: { select: { name: true } },
+            },
           },
         },
-      },
-      orderBy: [{ createdAt: 'asc' }],
-      take: 100,
-    });
+        orderBy: [{ createdAt: 'asc' }],
+        take: 100,
+      }),
+    );
 
     const labels = await this.describeEntities(
       tasks.map((t) => ({ entityType: t.instance.entityType, entityId: t.instance.entityId })),

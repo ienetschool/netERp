@@ -268,7 +268,7 @@ export default function ReportsPage() {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
-        <div className="rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)]">
+        <div className="rounded-lg border border-[var(--erp-border)] erp-frost">
           <p className="border-b border-[var(--erp-border)] px-3 py-2 text-sm font-medium">
             Reports
           </p>
@@ -307,7 +307,7 @@ export default function ReportsPage() {
         <div className="min-w-0">
           {selected ? (
             <>
-              <div className="mb-4 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4">
+              <div className="mb-4 rounded-lg border border-[var(--erp-border)] erp-frost p-4">
                 <p className="mb-3 text-sm font-medium">{selected.name}</p>
                 <div className="grid gap-3 md:grid-cols-4">
                   {supportedFilters.map((key) =>
@@ -315,7 +315,7 @@ export default function ReportsPage() {
                       <label key={key} className="text-xs text-[var(--erp-muted)]">
                         {FILTER_LABELS[key]}
                         <select
-                          className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                          className="erp-select mt-1"
                           value={filters[key] ?? ''}
                           onChange={(e) => {
                             setPage(1);
@@ -335,7 +335,7 @@ export default function ReportsPage() {
                         {FILTER_LABELS[key]}
                         <input
                           type="date"
-                          className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                          className="erp-input mt-1"
                           value={filters[key] ?? ''}
                           onChange={(e) => {
                             setPage(1);
@@ -347,7 +347,7 @@ export default function ReportsPage() {
                       <label key={key} className="text-xs text-[var(--erp-muted)]">
                         {FILTER_LABELS[key]}
                         <input
-                          className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                          className="erp-input mt-1"
                           value={filters[key] ?? ''}
                           placeholder="All"
                           onChange={(e) => {
@@ -391,7 +391,7 @@ export default function ReportsPage() {
                   <label className="text-xs text-[var(--erp-muted)]">
                     Sort by
                     <select
-                      className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                      className="erp-select mt-1"
                       value={sortField}
                       onChange={(e) => {
                         setPage(1);
@@ -410,7 +410,7 @@ export default function ReportsPage() {
                   <label className="text-xs text-[var(--erp-muted)]">
                     Direction
                     <select
-                      className="mt-1 w-full rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-2 text-sm"
+                      className="erp-select mt-1"
                       value={sortDirection}
                       onChange={(e) => {
                         setSortDirection(e.target.value as 'asc' | 'desc');
@@ -456,7 +456,7 @@ export default function ReportsPage() {
                       }}
                     >
                       <input
-                        className="rounded-md border border-[var(--erp-border)] bg-[var(--erp-bg)] px-3 py-1.5 text-sm"
+                        className="erp-input"
                         placeholder="Save as…"
                         value={savedName}
                         onChange={(e) => {
@@ -485,7 +485,7 @@ export default function ReportsPage() {
               </div>
 
               {showSaved ? (
-                <div className="mb-4 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)]">
+                <div className="mb-4 rounded-lg border border-[var(--erp-border)] erp-frost">
                   <p className="border-b border-[var(--erp-border)] px-3 py-2 text-sm font-medium">
                     Saved configurations
                   </p>
@@ -525,7 +525,7 @@ export default function ReportsPage() {
                 </div>
               ) : null}
 
-              <div className="overflow-x-auto rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)]">
+              <div className="overflow-x-auto rounded-lg border border-[var(--erp-border)] erp-frost">
                 {runQuery.isLoading ? (
                   <p className="p-4 text-sm">Running report…</p>
                 ) : runQuery.error ? (
@@ -651,7 +651,7 @@ export default function ReportsPage() {
               ) : null}
 
               {drill ? (
-                <div className="mt-4 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)]">
+                <div className="mt-4 rounded-lg border border-[var(--erp-border)] erp-frost">
                   <div className="flex items-center justify-between border-b border-[var(--erp-border)] px-3 py-2">
                     <p className="text-sm font-medium">
                       Transactions behind{' '}
@@ -715,7 +715,7 @@ export default function ReportsPage() {
                 </div>
               ) : null}
 
-              <div className="mt-6 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)]">
+              <div className="mt-6 rounded-lg border border-[var(--erp-border)] erp-frost">
                 <p className="border-b border-[var(--erp-border)] px-3 py-2 text-sm font-medium">
                   Recent exports
                 </p>

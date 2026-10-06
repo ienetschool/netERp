@@ -3,13 +3,10 @@ import React from 'react';
 export type AlertTone = 'error' | 'warning' | 'success' | 'info';
 
 const toneClasses: Record<AlertTone, string> = {
-  error:
-    'border-[var(--erp-danger)] text-[var(--erp-danger)] bg-[var(--erp-danger-bg,rgba(239,68,68,0.08))]',
-  warning:
-    'border-[var(--erp-warning)] text-[var(--erp-warning)] bg-[var(--erp-warning-bg,rgba(234,179,8,0.08))]',
-  success:
-    'border-[var(--erp-success)] text-[var(--erp-success)] bg-[var(--erp-success-bg,rgba(34,197,94,0.08))]',
-  info: 'border-[var(--erp-info)] text-[var(--erp-info)] bg-[var(--erp-info-bg,rgba(59,130,246,0.08))]',
+  error: 'text-[var(--erp-danger)] bg-[var(--erp-danger-bg)] ring-[var(--erp-danger)]/15',
+  warning: 'text-[var(--erp-warning)] bg-[var(--erp-warning-bg)] ring-[var(--erp-warning)]/15',
+  success: 'text-[var(--erp-success)] bg-[var(--erp-success-bg)] ring-[var(--erp-success)]/15',
+  info: 'text-[var(--erp-info)] bg-[var(--erp-info-bg)] ring-[var(--erp-info)]/15',
 };
 
 const TONE_GLYPH: Record<AlertTone, string> = {
@@ -28,14 +25,17 @@ export interface AlertProps {
 
 export function Alert({ tone, title, children, action }: AlertProps) {
   return (
-    <div role="alert" className={`rounded-md border px-4 py-3 text-sm ${toneClasses[tone]}`}>
-      <div className="flex items-start gap-2">
-        <span aria-hidden="true">{TONE_GLYPH[tone]}</span>
-        <div className="flex-1">
-          {title ? <p className="font-medium">{title}</p> : null}
-          <div className={title ? 'mt-0.5 opacity-90' : ''}>{children}</div>
-          {action ? <div className="mt-2">{action}</div> : null}
-        </div>
+    <div
+      role="alert"
+      className={`flex items-start gap-2.5 rounded-xl px-4 py-3 text-sm ring-1 ring-inset ${toneClasses[tone]}`}
+    >
+      <span aria-hidden="true" className="mt-0.5 text-[0.6875rem] font-bold">
+        {TONE_GLYPH[tone]}
+      </span>
+      <div className="flex-1">
+        {title ? <p className="font-semibold">{title}</p> : null}
+        <div className={title ? 'mt-0.5 opacity-90' : ''}>{children}</div>
+        {action ? <div className="mt-2">{action}</div> : null}
       </div>
     </div>
   );

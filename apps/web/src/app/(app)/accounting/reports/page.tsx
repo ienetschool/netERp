@@ -52,7 +52,7 @@ function AgingCard({ title, data }: { title: string; data: Aging | undefined }) 
   if (!data) return null;
   const t = data.totals;
   return (
-    <section className="rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4">
+    <section className="rounded-lg border border-[var(--erp-border)] erp-frost p-4">
       <h3 className="mb-2 text-sm font-semibold">{title}</h3>
       <div className="grid grid-cols-3 gap-2 text-xs md:grid-cols-6">
         {[
@@ -138,7 +138,7 @@ export default function AccountingReportsPage() {
         </Alert>
       ) : null}
 
-      <section className="mb-6 rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4">
+      <section className="mb-6 rounded-lg border border-[var(--erp-border)] erp-frost p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold">Trial balance</h3>
           <span
@@ -183,7 +183,7 @@ export default function AccountingReportsPage() {
 
       {stmt ? (
         <section className="mb-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4">
+          <div className="rounded-lg border border-[var(--erp-border)] erp-frost p-4">
             <h3 className="mb-2 text-sm font-semibold">Income statement</h3>
             {stmt.incomeStatement.revenue.map((r) => (
               <div key={r.accountId} className="flex justify-between text-xs">
@@ -205,7 +205,7 @@ export default function AccountingReportsPage() {
               <span>{stmt.incomeStatement.netIncome}</span>
             </div>
           </div>
-          <div className="rounded-lg border border-[var(--erp-border)] bg-[var(--erp-surface)] p-4">
+          <div className="rounded-lg border border-[var(--erp-border)] erp-frost p-4">
             <h3 className="mb-2 text-sm font-semibold">Balance sheet</h3>
             {stmt.balanceSheet.assets.map((r) => (
               <div key={r.accountId} className="flex justify-between text-xs">

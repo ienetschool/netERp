@@ -2174,7 +2174,25 @@ The supplied architecture explicitly requires this vertical-slice approach and s
 
 ---
 
-# 58. Final UX Acceptance
+# 58. Foundation Slice Status
+
+The current foundation pass implements:
+
+```text
+Global command palette with keyboard navigation and debounced record search
+Permission- and organization-scoped search against existing ERP tables
+Responsive drawer/collapsible primary navigation
+Permission-aware notification badge and notification list states
+Accessible dialog focus management, skip link, visible focus, and reduced-motion styles
+```
+
+Search opens the destination module list; it does not deep-link to a record or promise list filtering. Search coverage is limited to entity tables already wired into this pass. Search avoids PRIVATE documents not created by the caller and filters reports by active status, company scope, and each report's required permission.
+
+Still deferred from this specification: complete context switching, quick-create and user/help menus, all-module search indexing and ranking, record detail deep links, filterable list destinations, notification pagination/realtime delivery, full mobile workflow redesign, broader design-token/component-system adoption, saved views, and the remaining list/detail/form/accessibility/performance acceptance items. This foundation slice is not full UI-UX acceptance.
+
+---
+
+# 59. Final UX Acceptance
 
 The UI layer is accepted when:
 
@@ -2205,7 +2223,7 @@ The project's initial acceptance criteria also require authentication, permissio
 
 ---
 
-# 59. Next Document
+# 60. Next Document
 
 **CLAUDE.md**
 

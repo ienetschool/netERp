@@ -41,7 +41,7 @@ export class NotificationsController {
   async unreadCount(@Req() req: AuthedRequest): Promise<{ count: number }> {
     const principal = req.principal;
     if (!principal) return { count: 0 };
-    const items = await this.notifications.listForUser(principal.userId, true);
-    return { count: items.length };
+    const count = await this.notifications.unreadCount(principal.userId);
+    return { count };
   }
 }

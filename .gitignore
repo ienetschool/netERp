@@ -10,6 +10,9 @@ npm-debug.log*
 .env.local
 .env.production
 .env*.local
+.env.bak.*
+.env.*.bak
+!.env.example
 uploads/
 data/
 .DS_Store
@@ -18,3 +21,24 @@ data/
 prisma/*.db
 prisma/dev.db
 .freebuff/
+
+# Ruflo local secrets and runtime data
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Codex local configuration
+.codex/
+# Claude Flow runtime data
+
+# Local AI agent tooling (Ruflo / claude-flow / swarm) — never shipped
+.agents/
+.claude/
+.claude-flow/
+.swarm/
+ruvector.db
+CLAUDE.md
+AGENTS.md
+
+# Environment variables

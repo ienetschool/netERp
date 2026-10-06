@@ -4,6 +4,8 @@
  * Source: DATA-MODEL.md §5, USER-FLOWS.md §26, ARCHITECTURE.md §13.
  */
 
+export * from './search.js';
+
 export const MODULES = [
   'identity',
   'organization',
