@@ -186,7 +186,7 @@ as a fallback.
 
 ```text
 push to main
-  → verify (npm ci, prisma generate, typecheck, lint, unit tests)
+  → verify (npm ci, prisma generate, typecheck, lint, unit tests, deploy guard tests)
   → rsync working tree to $APP      (scripts/deploy-sync.sh, deletion-guarded)
   → build + restart on the host     (scripts/deploy-host.sh)
   → smoke test :3000/login and :4000/api/v1/health/live
@@ -271,6 +271,33 @@ GitHub accepts the checkout's key only after it is registered as a **deploy key 
 write access** at `https://github.com/<owner>/<repo>/settings/keys`. Until then
 `git ls-remote origin` fails with `Permission denied (publickey)` and nothing can be
 pushed, by the hook or by hand.
+
+### 4.5 Deploy safety tests
+
+```bash
+npm run test:deploy          # = bash scripts/test-deploy-guards.sh
+```
+
+Runs in the workflow's `verify` job before anything is shipped, and needs no server
+access. It exercises the **real** scripts against a scratch directory and fails the
+build if:
+
+- a sync that would delete a remote file does not abort (the guard protects `build.sh`,
+  `.env`, `apps/api/.env`, `ecosystem.config.js` and `data/`)
+- the guard fires on a clean sync, which would block every deploy
+- an excluded host-only artifact is removed, or a changed file is not copied
+- `deploy-host.sh` accepts a directory that is not the source tree
+- a GNU-only `date` flag reappears (BSD/macOS `date` has no `-Is`)
+- a command substitution is put back inline inside an `echo`, where `set -e` cannot
+  abort on its failure — the defect that once let a broken deploy exit 0
+
+`deploy-sync.sh` accepts the literal target `local` to sync into a directory on this
+machine instead of over SSH. That is what makes the guard testable, and it doubles as a
+way to rehearse a sync locally without touching the host:
+
+```bash
+SOURCE="$PWD" bash scripts/deploy-sync.sh local /tmp/neterp-rehearsal
+```
 
 ## 5. Rollback
 
