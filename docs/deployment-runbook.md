@@ -249,28 +249,42 @@ immediately visible in production and the other way round. Schema changes still 
 ### 4.4 Checkout wiring and auto-push
 
 `bash scripts/setup-github.sh` (`npm run github:setup`) makes a checkout ready to push:
-it sets the commit identity if absent, points `origin` at the repository, reports whether
-the SSH key is authorized, and installs a `post-commit` auto-push hook. It never pushes.
+it scans tracked files for leaked credentials, sets the commit identity if absent, points
+`origin` at the repository, verifies a push credential, and installs a `post-commit`
+auto-push hook.
 
 ```bash
 npm run github:setup                              # verify + install the hook (disabled)
+npm run github:setup -- --check-secrets           # scan tracked files only, then stop
 npm run github:setup -- --status                  # report only, change nothing
+npm run github:setup -- --token --push            # push over HTTPS with a fine-grained PAT
 npm run github:setup -- --auto-push               # enable auto-push after the checks pass
 ```
 
-The hook is **inert until enabled**: it pushes the current branch after each commit only
-while `git config neterp.autopush` is `true`, and a failed push prints a reminder instead
-of failing the commit. `--auto-push` refuses to enable the hook while the repository is
-public or while GitHub still rejects the key, because
-[docs/adr/0006-production-database-target.md](adr/0006-production-database-target.md)
-names the production database project — the repository must be private before the first
-push. Disable with `git config --unset neterp.autopush`; remove with
-`rm .git/hooks/post-commit`.
+**Credential scan.** Step 1 refuses to continue if a _tracked_ file looks like it holds a
+credential — a Postgres connection URL carrying an inline username and password and
+pointing anywhere but a local dev host, a private-key block, a GitHub or AWS key literal,
+a Supabase pooler endpoint, or a Supabase project ref named in prose. Ignored files (`.env`, `data/`) are expected to hold
+real credentials and are never pushed. The patterns are POSIX ERE, because BSD `grep` has
+no `-P`, and matching findings are masked before they are printed. This scan is why a
+public repository is acceptable: it is the gate, not the repository's visibility.
 
-GitHub accepts the checkout's key only after it is registered as a **deploy key with
-write access** at `https://github.com/<owner>/<repo>/settings/keys`. Until then
-`git ls-remote origin` fails with `Permission denied (publickey)` and nothing can be
-pushed, by the hook or by hand.
+**Transports.** SSH uses the deploy key at `~/.ssh/id_ed25519_github`, which GitHub
+accepts only after it is registered as a **deploy key with write access** at
+`https://github.com/<owner>/<repo>/settings/keys`; until then every push fails with
+`Permission denied (publickey)`. HTTPS uses a fine-grained PAT (`--token`, read from
+`$GH_TOKEN`/`$GITHUB_TOKEN` or pasted on stdin) needing **Contents: Read and write**.
+The PAT is verified against the API, then handed to the platform credential helper
+(macOS keychain) so later pushes are silent. It is never written to `.git/config`, never
+embedded in the remote URL, and never printed, and it is only stored once the API has
+vouched for it.
+
+**The hook** is **inert until enabled**: it pushes the current branch after each commit
+only while `git config neterp.autopush` is `true`, and a failed push prints a reminder
+instead of failing the commit. `--auto-push` refuses to enable it unless both gates pass
+— a clean credential scan and a `git push --dry-run` that actually succeeds. Disable with
+`git config --unset neterp.autopush`; remove with `rm .git/hooks/post-commit`. The first
+keychain access from the hook may raise a macOS permission prompt.
 
 ### 4.5 Deploy safety tests
 
