@@ -26,6 +26,7 @@
     "dev:api": "npm run start:dev -w @erp/api",
     "dev:web": "npm run dev -w @erp/web",
     "dev:worker": "npm run start:dev -w @erp/worker",
+    "deploy:live": "bash scripts/deploy-local.sh",
     "compose:up": "docker compose up -d postgres redis minio",
     "compose:down": "docker compose down"
   },

@@ -226,6 +226,18 @@ A local fallback is always available: `scripts/deploy-sync.sh` and
 `ssh neterp-plesk "bash <APP>/scripts/deploy-host.sh"` — the same two commands the
 workflow runs.
 
+From a Mac with SSH access to the host, one command runs all three steps:
+
+```bash
+npm run deploy:live          # = bash scripts/deploy-local.sh
+```
+
+It syncs (deletion-guarded), builds and restarts on the host, then smoke-tests
+`/api/v1/health/live` and `/login` **through the public domain**, so it measures the
+same path a real user takes. The script needs nothing from GitHub, so a deploy is
+possible even if the Actions secrets are not configured yet. It exits non-zero on any
+failed step, including a non-200 from the domain.
+
 ### 4.3 Data
 
 Local development and production point at the **same Supabase PostgreSQL database**, so
