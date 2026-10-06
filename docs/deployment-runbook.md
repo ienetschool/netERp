@@ -13,17 +13,17 @@ PostgreSQL-vs-MariaDB decision.
 
 ## 1. Target environment
 
-| Item | Value |
-| --- | --- |
-| Public URL | `https://erp.ienet.online` |
-| Host | Plesk Obsidian, AlmaLinux 9.x (`76.13.98.31`) |
-| SSH | key-based, host alias `neterp-plesk` (see `~/.ssh/config`) |
-| Checkout / build root | `/var/www/vhosts/ienet.online/erp.ienet.online/app` |
-| DocumentRoot | `/var/www/vhosts/ienet.online/erp.ienet.online` |
+| Item                     | Value                                                         |
+| ------------------------ | ------------------------------------------------------------- |
+| Public URL               | `https://erp.ienet.online`                                    |
+| Host                     | Plesk Obsidian, AlmaLinux 9.x (`76.13.98.31`)                 |
+| SSH                      | key-based, host alias `neterp-plesk` (see `~/.ssh/config`)    |
+| Checkout / build root    | `/var/www/vhosts/ienet.online/erp.ienet.online/app`           |
+| DocumentRoot             | `/var/www/vhosts/ienet.online/erp.ienet.online`               |
 | Reverse-proxy directives | `/var/www/vhosts/system/erp.ienet.online/conf/vhost_ssl.conf` |
-| pm2 process list | `app/ecosystem.config.js` → `/root/.pm2/dump.pm2` |
-| Logs | `/var/log/neterp/{api,web}.{out,err}.log` |
-| Runtime | Node.js 20.x, npm 10.x, pm2 7.x, no Redis, no gcc |
+| pm2 process list         | `app/ecosystem.config.js` → `/root/.pm2/dump.pm2`             |
+| Logs                     | `/var/log/neterp/{api,web}.{out,err}.log`                     |
+| Runtime                  | Node.js 20.x, npm 10.x, pm2 7.x, no Redis, no gcc             |
 
 Runtime topology (one reverse-proxy rule to port 3000 is enough, because Next.js fronts
 `/api/v1/*` itself):
@@ -75,7 +75,7 @@ rsync -az --delete \
 ```
 
 **Host-only artifacts — never let `--delete` remove these.** `build.sh`,
-`ecosystem.config.js`, `.env`, `apps/api/.env`, and `data/` exist *only* on the host (they
+`ecosystem.config.js`, `.env`, `apps/api/.env`, and `data/` exist _only_ on the host (they
 are absent from the repo and untracked), so an unguarded `--delete` sync silently wipes
 them. `rsync` protects excluded paths from deletion, which is why every one of them must
 appear in the exclude list. Always dry-run first (`--dry-run --itemize-changes`) and
@@ -200,15 +200,16 @@ smoke test does not return `200`. It also warns when `connection_limit=` is miss
 
 ### 4.1 One-time setup
 
-1. Create the repository on GitHub and push `main` (see §4.2).
+1. Wire the checkout to GitHub and push `main`: run `bash scripts/setup-github.sh` and
+   follow the steps it prints (see §4.4).
 2. Add repository secrets under **Settings → Secrets and variables → Actions**:
 
-   | Secret | Value |
-   | --- | --- |
-   | `SSH_PRIVATE_KEY` | Private key that logs in to the host (the `IdentityFile` from the `neterp-plesk` alias) |
-   | `SSH_HOST` | `76.13.98.31` |
-   | `SSH_USER` | `root` |
-   | `SSH_KNOWN_HOSTS` *(optional)* | Output of `ssh-keyscan -H 76.13.98.31`; fetched automatically when unset |
+   | Secret                         | Value                                                                                   |
+   | ------------------------------ | --------------------------------------------------------------------------------------- |
+   | `SSH_PRIVATE_KEY`              | Private key that logs in to the host (the `IdentityFile` from the `neterp-plesk` alias) |
+   | `SSH_HOST`                     | `76.13.98.31`                                                                           |
+   | `SSH_USER`                     | `root`                                                                                  |
+   | `SSH_KNOWN_HOSTS` _(optional)_ | Output of `ssh-keyscan -H 76.13.98.31`; fetched automatically when unset                |
 
 3. Run the workflow once with **Actions → Deploy → Run workflow** to confirm it succeeds.
 
@@ -245,6 +246,32 @@ there is no replication step and no data-sync job to run: a change made locally 
 immediately visible in production and the other way round. Schema changes still need
 `npm run db:migrate:deploy` to be applied to that shared database.
 
+### 4.4 Checkout wiring and auto-push
+
+`bash scripts/setup-github.sh` (`npm run github:setup`) makes a checkout ready to push:
+it sets the commit identity if absent, points `origin` at the repository, reports whether
+the SSH key is authorized, and installs a `post-commit` auto-push hook. It never pushes.
+
+```bash
+npm run github:setup                              # verify + install the hook (disabled)
+npm run github:setup -- --status                  # report only, change nothing
+npm run github:setup -- --auto-push               # enable auto-push after the checks pass
+```
+
+The hook is **inert until enabled**: it pushes the current branch after each commit only
+while `git config neterp.autopush` is `true`, and a failed push prints a reminder instead
+of failing the commit. `--auto-push` refuses to enable the hook while the repository is
+public or while GitHub still rejects the key, because
+[docs/adr/0006-production-database-target.md](adr/0006-production-database-target.md)
+names the production database project — the repository must be private before the first
+push. Disable with `git config --unset neterp.autopush`; remove with
+`rm .git/hooks/post-commit`.
+
+GitHub accepts the checkout's key only after it is registered as a **deploy key with
+write access** at `https://github.com/<owner>/<repo>/settings/keys`. Until then
+`git ls-remote origin` fails with `Permission denied (publickey)` and nothing can be
+pushed, by the hook or by hand.
+
 ## 5. Rollback
 
 Backups are kept under `/root/` on the host. To roll back:
@@ -264,7 +291,7 @@ database owner before reverting an application version that changed the schema.
 ## 6. Maintenance notes
 
 - **Logs.** Log rotation is configured in `/etc/logrotate.d/neterp` (weekly, rotate 4,
-  compress,  `copytruncate`). pm2 uses `merge_logs`, so the process prefix is blank in these
+  compress, `copytruncate`). pm2 uses `merge_logs`, so the process prefix is blank in these
   files; prefer `pm2 logs` / `pm2 flush` over grepping the rotated files directly.
 - **Worker.** The BullMQ worker (`apps/worker`) is intentionally not deployed — it
   requires Redis. Any feature depending on it (scheduled jobs, outbox relay) is inert in
