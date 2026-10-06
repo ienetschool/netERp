@@ -36,4 +36,7 @@ for path in /api/v1/health/live /login; do
 done
 
 # Portable timestamp: BSD date (macOS) has no -I flag, GNU date does.
-echo "== deploy complete $(date -u '+%Y-%m-%dT%H:%M:%SZ') =="
+# Hoisted into a variable on purpose: set -e does not abort when a command
+# substitution fails inside an argument to echo, but it does for an assignment.
+FINISHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+echo "== deploy complete $FINISHED_AT =="

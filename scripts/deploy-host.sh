@@ -18,9 +18,15 @@ export NODE_OPTIONS=--max-old-space-size=4096
 export API_URL="${API_URL:-http://127.0.0.1:4000}"
 
 cd "$APP_DIR"
-echo "== deploy start $(date -Is) =="
+# Timestamps and tool versions are hoisted into variables so a failure inside the
+# substitution aborts the deploy: set -e ignores a failed substitution that sits in
+# an argument to echo, which would otherwise let a broken run report success.
+STARTED_AT="$(date -Is)"
+NODE_VERSION="$(node -v)"
+NPM_VERSION="$(npm -v)"
+echo "== deploy start $STARTED_AT =="
 echo "app dir: $APP_DIR"
-echo "node $(node -v) / npm $(npm -v)"
+echo "node $NODE_VERSION / npm $NPM_VERSION"
 
 if [ ! -f "$APP_DIR/package.json" ]; then
   echo "ERROR: $APP_DIR does not look like the netERp source tree" >&2
@@ -56,7 +62,8 @@ API_URL="$API_URL" npm run build -w @erp/web
 if [ -d "$WEB_DIR/.next/static" ]; then
   mkdir -p "$STANDALONE/.next/static"
   rsync -a --delete "$WEB_DIR/.next/static/" "$STANDALONE/.next/static/"
-  echo "-- copied .next/static ($(find "$STANDALONE/.next/static" -type f | wc -l) files)"
+  STATIC_FILES="$(find "$STANDALONE/.next/static" -type f | wc -l)"
+  echo "-- copied .next/static ($STATIC_FILES files)"
 fi
 if [ -d "$WEB_DIR/public" ]; then
   mkdir -p "$STANDALONE/public"
@@ -100,4 +107,5 @@ else
   echo "-- curl unavailable, skipping smoke test"
 fi
 
-echo "== deploy finished $(date -Is) =="
+FINISHED_AT="$(date -Is)"
+echo "== deploy finished $FINISHED_AT =="
