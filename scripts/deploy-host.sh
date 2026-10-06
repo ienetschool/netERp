@@ -21,7 +21,9 @@ cd "$APP_DIR"
 # Timestamps and tool versions are hoisted into variables so a failure inside the
 # substitution aborts the deploy: set -e ignores a failed substitution that sits in
 # an argument to echo, which would otherwise let a broken run report success.
-STARTED_AT="$(date -Is)"
+# The format string is portable on purpose ($(date -Is) is GNU-only and fails on
+# BSD/macOS, where this script is also used for a local rehearsal).
+STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 NODE_VERSION="$(node -v)"
 NPM_VERSION="$(npm -v)"
 echo "== deploy start $STARTED_AT =="
@@ -107,5 +109,5 @@ else
   echo "-- curl unavailable, skipping smoke test"
 fi
 
-FINISHED_AT="$(date -Is)"
+FINISHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 echo "== deploy finished $FINISHED_AT =="

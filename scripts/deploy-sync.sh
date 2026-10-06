@@ -8,11 +8,22 @@
 # Defaults: ssh-target "neterp-plesk", remote-app-dir the Plesk docroot.
 # After a successful sync, run the build/deploy on the host:
 #   ssh <ssh-target> 'bash /var/www/vhosts/ienet.online/erp.ienet.online/app/scripts/deploy-host.sh'
+#
+# Pass the literal target "local" to sync into a plain directory on this machine
+# instead of over SSH. That exists so scripts/test-deploy-guards.sh can exercise
+# the real deletion guard against a scratch directory, and it doubles as a way to
+# rehearse a sync locally without touching the host.
 set -euo pipefail
 
 TARGET="${1:-neterp-plesk}"
 REMOTE_DIR="${2:-/var/www/vhosts/ienet.online/erp.ienet.online/app}"
 SOURCE="${SOURCE:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+if [ "$TARGET" = "local" ]; then
+  DEST="$REMOTE_DIR"
+else
+  DEST="$TARGET:$REMOTE_DIR"
+fi
 
 # Files that exist only on the server (root-owned env, build and pm2 config, uploaded
 # documents) are excluded so an unattended sync can never overwrite or delete them.
@@ -40,8 +51,8 @@ EXCLUDES=(
   --exclude 'ruvector.db'
 )
 
-echo "== dry run: $SOURCE -> $TARGET:$REMOTE_DIR =="
-DRY="$(rsync -an -i --delete "${EXCLUDES[@]}" "$SOURCE/" "$TARGET:$REMOTE_DIR/" || true)"
+echo "== dry run: $SOURCE -> $DEST =="
+DRY="$(rsync -an -i --delete "${EXCLUDES[@]}" "$SOURCE/" "$DEST/" || true)"
 CHANGES="$(printf '%s\n' "$DRY" | grep -c '[^[:space:]]' || true)"
 DELETIONS="$(printf '%s\n' "$DRY" | grep '^\*deleting' || true)"
 DELETE_COUNT=0
@@ -60,5 +71,5 @@ if [ "$DELETE_COUNT" -gt 0 ]; then
 fi
 
 echo "== syncing =="
-rsync -az --delete "${EXCLUDES[@]}" "$SOURCE/" "$TARGET:$REMOTE_DIR/"
+rsync -az --delete "${EXCLUDES[@]}" "$SOURCE/" "$DEST/"
 echo "== sync complete =="
