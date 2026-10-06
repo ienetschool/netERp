@@ -48,6 +48,9 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+      - name: Ensure rsync is available
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rsync
+
       # Fails the pipeline if the sync's deletion guard, the host-only artifact
       # excludes, or the exit-status checks regress. Needs no server access.
       - name: Deploy guard tests

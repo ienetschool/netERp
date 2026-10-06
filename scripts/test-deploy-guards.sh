@@ -20,6 +20,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0
 FAIL=0
 
+# Fail loudly rather than reporting a pass when the tool under test is absent.
+for tool in rsync mktemp; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "ERROR: $tool is required to run the deploy guard tests" >&2
+    exit 1
+  fi
+done
+
 ok() {
   echo "  ok   - $1"
   PASS=$((PASS + 1))
