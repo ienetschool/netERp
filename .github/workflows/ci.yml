@@ -100,6 +100,12 @@ jobs:
         run: npm run db:seed
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp
+      # npm walks workspaces alphabetically, so `--workspaces` reaches @erp/api's
+      # `nest build` before the @erp/* packages it imports exist. Build the packages
+      # first or the full build only passes on a tree that was built by hand.
+      - name: Build workspace packages
+        run: npm run build:packages
+
       - name: Build
         run: npm run build --workspaces --if-present
         env:
