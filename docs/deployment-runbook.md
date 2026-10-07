@@ -331,6 +331,14 @@ build if:
 - the guard fires on a clean sync, which would block every deploy
 - an excluded host-only artifact is removed, or a changed file is not copied
 - `deploy-host.sh` accepts a directory that is not the source tree
+- `deploy-host.sh` exits 0 while the app it just restarted is never healthy. The host
+  smoke test is driven with stub tools injected through `BASH_ENV` — the script overwrites
+  `PATH`, so shell functions are what make it testable without a test-only seam — and a
+  failing run must exit non-zero and must never print a success line
+- the standalone web build is missing `.next/static` or `public`. Next.js does not copy
+  them into the standalone output, so the app 404s its own assets until they are copied in
+- the pool warning fires on a healthy `.env`, or fails a deploy that is otherwise fine.
+  A missing `connection_limit` deserves a loud warning, not a blocked deploy
 - a GNU-only `date` flag reappears (BSD/macOS `date` has no `-Is`)
 - a command substitution is put back inline inside an `echo`, where `set -e` cannot
   abort on its failure — the defect that once let a broken deploy exit 0
@@ -341,6 +349,10 @@ build if:
 - the auto-push hook pushes before it is armed, stops pushing once armed, or fails a
   commit when the push fails
 - the pre-commit guard lets a marked fixture hide an unmarked secret in the same file
+
+Each of these was checked by mutating the script under test and confirming the suite goes
+red, so the assertions are known to fail on the defect rather than merely pass on the
+current code.
 
 `deploy-sync.sh` accepts the literal target `local` to sync into a directory on this
 machine instead of over SSH. That is what makes the guard testable, and it doubles as a

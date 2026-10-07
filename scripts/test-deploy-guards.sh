@@ -9,6 +9,7 @@
 #   * a GNU-only `date` flag, or a failed substitution hidden inside echo, letting a
 #     broken deploy exit 0 (this shipped once and was missed)
 #   * deploy-host.sh running against something that is not the source tree
+#   * deploy-host.sh exiting 0 while the app it just restarted was never healthy
 #   * the credential scan quietly stopping matching, which would leak the production
 #     database password into a public repository (this shipped once and was missed)
 #   * the auto-push hook failing a commit, or pushing when it was never armed
@@ -360,6 +361,97 @@ git -C "$SCANREPO" add normal.txt >/dev/null 2>&1
 out="$(git -C "$SCANREPO" commit -qm normal 2>&1)"
 check "a clean commit still succeeds" "0" "$?"
 check "a clean commit stays silent" "" "$out"
+
+echo "== 11. deploy-host.sh fails the deploy when the smoke test never passes =="
+# This is the half of a deploy that touches production, and its worst failure is exiting 0
+# while the app it just restarted is down. deploy-host.sh overwrites PATH, so the stub
+# tools are injected as shell functions via BASH_ENV: functions win over PATH lookup, so
+# the script under test needs no test-only seam. `sleep` is stubbed as well, or the
+# 12-step retry loop would cost a minute on every failed assertion.
+HOSTAPP="$SCRATCH/hostapp"
+HOSTSTUB="$SCRATCH/hoststub"
+HOSTPM2="$SCRATCH/pm2.log"
+mkdir -p "$HOSTAPP/apps/api" "$HOSTAPP/apps/web/.next/static" "$HOSTAPP/apps/web/public" "$HOSTSTUB"
+printf '{"name":"stub"}\n' > "$HOSTAPP/package.json"
+# Deliberately a localhost URL: this fixture must never look like a real leaked credential
+# to the scan, which is also what the scan's devhost filter is there to recognise.
+printf 'DATABASE_URL=postgresql://u:p@localhost:5432/db?connection_limit=5\n' > "$HOSTAPP/apps/api/.env"
+printf 'chunk\n' > "$HOSTAPP/apps/web/.next/static/chunk.js"
+printf 'icon\n' > "$HOSTAPP/apps/web/public/favicon.ico"
+cat > "$HOSTSTUB/env.sh" <<'STUBEOF'
+npm() { case "${1:-}" in -v) echo "10.0.0-stub" ;; *) return 0 ;; esac; }
+node() { echo "v20.0.0-stub"; }
+pm2() { printf 'pm2 %s\n' "$*" >> "$PM2_LOG"; }
+curl() { echo "${HOSTCURL_CODE:-200}"; }
+sleep() { return 0; }
+STUBEOF
+run_host() { # curl-code -> the script's output; exit status is the script's
+  HOSTCURL_CODE="$1" PM2_LOG="$HOSTPM2" BASH_ENV="$HOSTSTUB/env.sh" APP_DIR="$HOSTAPP" \
+    bash "$ROOT/scripts/deploy-host.sh" 2>&1
+}
+: > "$HOSTPM2"
+
+out="$(run_host 500)"
+rc=$?
+check "exits 1 when the smoke test never passes" "1" "$rc"
+if printf '%s' "$out" | grep -q 'ERROR: smoke test failed'; then
+  ok "says the smoke test failed"
+else
+  bad "says the smoke test failed" "ERROR: smoke test failed (api=0 web=0)" "$(printf '%s' "$out" | tail -2)"
+fi
+if printf '%s' "$out" | grep -q 'smoke test passed'; then
+  bad "never claims success for a dead app" "no success line" "claimed the smoke test passed"
+else
+  ok "never claims success for a dead app"
+fi
+
+out="$(run_host 200)"
+rc=$?
+check "exits 0 when the smoke test passes" "0" "$rc"
+if printf '%s' "$out" | grep -q -- '-- smoke test passed'; then
+  ok "reports the passing smoke test"
+else
+  bad "reports the passing smoke test" "-- smoke test passed" "$(printf '%s' "$out" | tail -2)"
+fi
+# Next.js standalone ships without .next/static or public, and the app 404s its own
+# assets until they are copied in. That is exactly the bug that shipped once.
+STANDALONE_OUT="$HOSTAPP/apps/web/.next/standalone/apps/web"
+check "populated the standalone .next/static" "chunk" \
+  "$(cat "$STANDALONE_OUT/.next/static/chunk.js" 2>/dev/null || echo missing)"
+check "populated the standalone public dir" "icon" \
+  "$(cat "$STANDALONE_OUT/public/favicon.ico" 2>/dev/null || echo missing)"
+if printf '%s' "$out" | grep -q 'build.sh missing, running steps inline'; then
+  ok "falls back to inline steps when build.sh is absent"
+else
+  bad "falls back to inline steps when build.sh is absent" "-- build.sh missing, running steps inline" "$(printf '%s' "$out" | grep -c 'npm' | tr -d ' ')"
+fi
+if printf '%s' "$out" | grep -q 'connection_limit is missing'; then
+  bad "no false pool warning when the setting is present" "no warning" "warned about a setting that exists"
+else
+  ok "no false pool warning when the setting is present"
+fi
+if grep -q 'reload neterp-api' "$HOSTPM2" && grep -q 'reload neterp-web' "$HOSTPM2"; then
+  ok "reloaded both processes by name"
+else
+  bad "reloaded both processes by name" "pm2 reload neterp-api / neterp-web" "$(cat "$HOSTPM2" | tr '\n' ' ')"
+fi
+if grep -qx 'pm2 save' "$HOSTPM2"; then
+  ok "persisted the process list"
+else
+  bad "persisted the process list" "pm2 save" "$(cat "$HOSTPM2" | tr '\n' ' ')"
+fi
+
+# The warning is advisory: it must be loud, but it must not fail an otherwise healthy
+# deploy, or every deploy without the setting would be blocked.
+printf 'DATABASE_URL=postgresql://u:p@localhost:5432/db\n' > "$HOSTAPP/apps/api/.env"
+out="$(run_host 200)"
+rc=$?
+check "still exits 0 when only the pool warning fires" "0" "$rc"
+if printf '%s' "$out" | grep -q 'connection_limit is missing'; then
+  ok "warns when the pool setting is absent"
+else
+  bad "warns when the pool setting is absent" "WARNING: connection_limit is missing" "$(printf '%s' "$out" | tail -2)"
+fi
 
 echo
 echo "== $PASS passed, $FAIL failed =="
