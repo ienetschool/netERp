@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build -w @erp/types -w @erp/validation -w @erp/permissions -w @erp/prisma -w @erp/ui -w @erp/reporting",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
