@@ -3,6 +3,7 @@
 #
 #   bash scripts/setup-github.sh                    # verify everything, install the hook (disabled)
 #   bash scripts/setup-github.sh --check-secrets    # only scan tracked files for leaked credentials
+#                                                   # (a line can opt out with: secret-guard:allow-synthetic)
 #   bash scripts/setup-github.sh --token --push     # push over HTTPS with a fine-grained PAT
 #   bash scripts/setup-github.sh --auto-push        # enable the hook (needs a clean scan + a working credential)
 #   bash scripts/setup-github.sh --status           # report only, change nothing
@@ -20,6 +21,12 @@
 # Auto-push sends every commit to origin. It stays OFF until you enable it, and two
 # gates must pass first: no tracked file may contain a credential-looking value, and a
 # push credential must actually work. A public repository is fine once the scan passes.
+#
+# Two hooks are installed into .git/hooks/ from scripts/git-hooks/, both inert until
+# configured (pre-commit blocks a leaked credential, post-commit auto-pushes):
+#
+#   git config neterp.secretguard false   # allow a commit the scan would block
+#   git config neterp.autopush true       # arm the auto-push
 #
 # Everything except --push and --auto-push is read-only and safe.
 set -euo pipefail
@@ -67,10 +74,24 @@ scan_secrets() {
   local cred='postgres(ql)?://[^:/@[:space:]"]+:[^@[:space:]"]*@[A-Za-z0-9][A-Za-z0-9._-]*'
   local devhost='@(localhost|127\.0\.0\.1|db|postgres|host\.docker\.internal)([:/]|$)'
   local other='BEGIN (RSA |OPENSSH |EC |PGP )?PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|pooler\.supabase\.com|ref `[a-z0-9]{20}`'
+  # A scanner needs fixture data that looks exactly like the thing it detects, so a
+  # single line can opt out with this marker. Only the marked line is skipped, and
+  # adding it is a deliberate act that shows up in review.
+  local allow='secret-guard:allow-synthetic'
+
+  # `xargs COMMAND` with an empty input runs COMMAND once with no file arguments on
+  # GNU systems, which would make grep wait on stdin and hang every commit. A repo
+  # with nothing staged yet is exactly that case, so stop before xargs.
+  # The emptiness test is deliberately a separate `git ls-files` call: shell variables
+  # cannot hold NUL bytes, so capturing the -z stream into one would silently merge
+  # every filename into a single unusable argument and report a false all-clear.
+  if [ -z "$(git ls-files)" ]; then
+    return 0
+  fi
 
   local a b
-  a="$( { git ls-files -z | xargs -0 grep -nE "$cred" 2>/dev/null | grep -vE "$devhost"; } || true)"
-  b="$( { git ls-files -z | xargs -0 grep -nE "$other" 2>/dev/null; } || true)"
+  a="$( { git ls-files -z | xargs -0 grep -nE "$cred" 2>/dev/null | grep -vE "$devhost" | grep -vF "$allow"; } || true)"
+  b="$( { git ls-files -z | xargs -0 grep -nE "$other" 2>/dev/null | grep -vF "$allow"; } || true)"
 
   if [ -n "$a" ] || [ -n "$b" ]; then
     # Mask everything between ":" and "@" so the finding itself is not echoed in full.
@@ -81,6 +102,8 @@ scan_secrets() {
 }
 
 echo "== 1/6 credential scan =="
+# The pre-commit hook calls this same function, so a change here changes what
+# every future commit is allowed to contain. Keep it portable POSIX ERE.
 scan_out="$(scan_secrets || true)"
 if [ -z "$scan_out" ]; then
   echo "   clean: no credential-looking values in tracked files"
@@ -221,30 +244,41 @@ if [ "$MODE" = "push" ]; then
   GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$probe_ssh" git ls-remote --heads origin | sed 's/^/     /'
 fi
 
+# ---------------------------------------------------------------------------
+# Hooks. The bodies are version-controlled under scripts/git-hooks/ so the code that
+# runs on every commit is reviewable and covered by scripts/test-deploy-guards.sh,
+# rather than existing only as a heredoc that nothing ever executes in a test.
+# ---------------------------------------------------------------------------
+HOOKS="pre-commit post-commit"
 HOOK="$ROOT/.git/hooks/post-commit"
 if [ "$MODE" = "status" ]; then
-  echo "== 6/6 auto-push hook (--status: not writing) =="
+  echo "== 6/6 git hooks (--status: not writing) =="
+  for hook in $HOOKS; do
+    src="$ROOT/scripts/git-hooks/$hook"
+    dst="$ROOT/.git/hooks/$hook"
+    if [ ! -f "$dst" ]; then
+      echo "   $hook: not installed"
+    elif cmp -s "$src" "$dst"; then
+      echo "   $hook: installed and current"
+    else
+      echo "   $hook: installed but differs from scripts/git-hooks/$hook"
+    fi
+  done
 else
-  echo "== 6/6 auto-push hook =="
-  cat >"$HOOK" <<'EOM'
-#!/usr/bin/env bash
-# Installed by scripts/setup-github.sh. Pushes the current branch after each
-# commit, but only when neterp.autopush is true, so it is inert by default.
-# Disable:  git config --unset neterp.autopush     Remove:  rm .git/hooks/post-commit
-[ "$(git config --get neterp.autopush || true)" = "true" ] || exit 0
-branch="$(git rev-parse --abbrev-ref HEAD)"
-if GIT_TERMINAL_PROMPT=0 git push --quiet --no-progress origin "$branch" >/dev/null 2>&1; then
-  echo "[auto-push] $branch -> origin"
-else
-  echo "[auto-push] push of $branch failed; run: git push origin $branch" >&2
-fi
-exit 0
-EOM
-  chmod +x "$HOOK"
-  echo "   installed $HOOK"
+  echo "== 6/6 git hooks =="
+  for hook in $HOOKS; do
+    src="$ROOT/scripts/git-hooks/$hook"
+    if [ ! -f "$src" ]; then
+      echo "   MISCONFIGURED: $src is missing" >&2
+      exit 1
+    fi
+    cp "$src" "$ROOT/.git/hooks/$hook"
+    chmod +x "$ROOT/.git/hooks/$hook"
+    echo "   installed .git/hooks/$hook"
+  done
 fi
 
-if [ -f "$HOOK" ]; then echo "   hook: installed"; else echo "   hook: not installed"; fi
+if [ -f "$HOOK" ]; then echo "   auto-push hook: installed"; else echo "   auto-push hook: not installed"; fi
 
 if [ "$MODE" = "enable" ]; then
   if [ "$push_ready" != true ]; then
@@ -263,6 +297,9 @@ fi
 cat <<EOM
 
 -- next steps ---------------------------------------------------------------
+0. Installed hooks (both inert until enabled):
+     pre-commit  blocks a commit containing a credential   git config neterp.secretguard false
+     post-commit pushes the current branch                  git config neterp.autopush true
 1. Push (creates main on the remote -- it is empty today):
      bash scripts/setup-github.sh --token --push     # PAT over HTTPS
      bash scripts/setup-github.sh --push             # or the SSH deploy key

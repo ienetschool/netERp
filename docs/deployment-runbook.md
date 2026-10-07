@@ -246,12 +246,29 @@ there is no replication step and no data-sync job to run: a change made locally 
 immediately visible in production and the other way round. Schema changes still need
 `npm run db:migrate:deploy` to be applied to that shared database.
 
+Check that rather than trusting it:
+
+```bash
+npm run verify:shared-db
+```
+
+It reads rows through the local `apps/api/.env` `DATABASE_URL`, then asks the live API for
+the same rows and compares `id` and `updatedAt`. It writes nothing on either side, so it
+is safe against production, and it exits non-zero if the two sides stop agreeing — which
+is what a second database, or a local Postgres in `DATABASE_URL`, would look like.
+
+The flip side of one shared database: **running the API locally writes to production**, so
+there is no sandbox behind a local dev session. Point `DATABASE_URL` at a local Postgres
+before doing anything destructive.
+
 ### 4.4 Checkout wiring and auto-push
 
 `bash scripts/setup-github.sh` (`npm run github:setup`) makes a checkout ready to push:
 it scans tracked files for leaked credentials, sets the commit identity if absent, points
-`origin` at the repository, verifies a push credential, and installs a `post-commit`
-auto-push hook.
+`origin` at the repository, verifies a push credential, and installs two git hooks — a
+`pre-commit` secret guard and a `post-commit` auto-pusher. Both hook bodies are
+version-controlled in `scripts/git-hooks/` and copied into `.git/hooks/`, so the code that
+runs on every commit is reviewable and covered by `npm run test:deploy`.
 
 ```bash
 npm run github:setup                              # verify + install the hook (disabled)
@@ -269,6 +286,11 @@ real credentials and are never pushed. The patterns are POSIX ERE, because BSD `
 no `-P`, and matching findings are masked before they are printed. This scan is why a
 public repository is acceptable: it is the gate, not the repository's visibility.
 
+A single line can opt out with the marker `secret-guard:allow-synthetic`. That exists
+because a scanner needs fixtures that look exactly like what it detects; only the marked
+line is skipped, so an unmarked secret in the same file still fires. Adding the marker is
+deliberate and shows up in review.
+
 **Transports.** SSH uses the deploy key at `~/.ssh/id_ed25519_github`, which GitHub
 accepts only after it is registered as a **deploy key with write access** at
 `https://github.com/<owner>/<repo>/settings/keys`; until then every push fails with
@@ -279,12 +301,20 @@ The PAT is verified against the API, then handed to the platform credential help
 embedded in the remote URL, and never printed, and it is only stored once the API has
 vouched for it.
 
-**The hook** is **inert until enabled**: it pushes the current branch after each commit
-only while `git config neterp.autopush` is `true`, and a failed push prints a reminder
-instead of failing the commit. `--auto-push` refuses to enable it unless both gates pass
-— a clean credential scan and a `git push --dry-run` that actually succeeds. Disable with
+**The `post-commit` auto-push hook** is **inert until enabled**: it pushes the current
+branch after each commit only while `git config neterp.autopush` is `true`, and a failed
+push prints a reminder instead of failing the commit — losing a push must never cost a
+commit. `--auto-push` refuses to enable it unless both gates pass: a clean credential scan
+and a `git push --dry-run` that actually succeeds. Disable with
 `git config --unset neterp.autopush`; remove with `rm .git/hooks/post-commit`. The first
 keychain access from the hook may raise a macOS permission prompt.
+
+**The `pre-commit` secret guard** runs the step-1 scan before every commit and blocks the
+commit if it finds anything, so a credential cannot enter the history of a public
+repository. It is quiet on a clean commit — a hook that chatters gets disabled, and a
+disabled hook protects nothing. Escape hatches: `git commit --no-verify` for one commit,
+`git config neterp.secretguard false` to switch it off. Re-install both hooks with
+`npm run github:setup`.
 
 ### 4.5 Deploy safety tests
 
@@ -304,6 +334,13 @@ build if:
 - a GNU-only `date` flag reappears (BSD/macOS `date` has no `-Is`)
 - a command substitution is put back inline inside an `echo`, where `set -e` cannot
   abort on its failure — the defect that once let a broken deploy exit 0
+- the credential scan stops matching. Each pattern is driven with a synthetic secret that
+  must fire (pooled database password, GitHub token, AWS key, private-key header, Supabase
+  pooler host) and a localhost URL that must not, because a pattern that silently stopped
+  matching is a false all-clear — exactly how a real leak reaches a public repository
+- the auto-push hook pushes before it is armed, stops pushing once armed, or fails a
+  commit when the push fails
+- the pre-commit guard lets a marked fixture hide an unmarked secret in the same file
 
 `deploy-sync.sh` accepts the literal target `local` to sync into a directory on this
 machine instead of over SSH. That is what makes the guard testable, and it doubles as a

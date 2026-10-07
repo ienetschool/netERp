@@ -9,9 +9,13 @@
 #   * a GNU-only `date` flag, or a failed substitution hidden inside echo, letting a
 #     broken deploy exit 0 (this shipped once and was missed)
 #   * deploy-host.sh running against something that is not the source tree
+#   * the credential scan quietly stopping matching, which would leak the production
+#     database password into a public repository (this shipped once and was missed)
+#   * the auto-push hook failing a commit, or pushing when it was never armed
 #
-# Everything runs in a scratch directory. It never contacts the host and never
-# touches the real working tree.
+# Everything runs in a scratch directory. It never contacts the host or GitHub, and
+# never touches the real working tree. Scratch git repositories are real ones, because
+# git only runs hooks inside a repository.
 set -uo pipefail
 
 export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
@@ -162,6 +166,200 @@ for script in deploy-sync.sh deploy-host.sh deploy-local.sh setup-github.sh test
     bad "$script is executable" "mode +x" "$(stat -f '%Sp' "$ROOT/scripts/$script" 2>/dev/null || stat -c '%A' "$ROOT/scripts/$script")"
   fi
 done
+
+# The hook bodies are the code that runs on every single commit, so they get the same
+# parse and permission checks. Both are installed by setup-github.sh into .git/hooks/,
+# which is not tracked, so these two files are the only version-controlled copy.
+for hook in pre-commit post-commit; do
+  if bash -n "$ROOT/scripts/git-hooks/$hook" 2>/dev/null; then
+    ok "git-hooks/$hook parses"
+  else
+    bad "git-hooks/$hook parses" "bash -n exit 0" "syntax error"
+  fi
+done
+
+# --- a scratch repository for the hook and scan tests ------------------------------
+# A real repo is needed: git only runs hooks inside one, and the scan reads the index.
+HOOKREPO="$SCRATCH/hookrepo"
+HOOKORIGIN="$SCRATCH/hook-origin.git"
+SCANREPO="$SCRATCH/scanrepo"
+# Synthetic, not real. The marker tells the scan these fixtures are deliberate; see
+# scripts/setup-github.sh:scan_secrets. Do not add a real value to this file.
+LEAK='DATABASE_URL=postgresql://erp_api.abcdefghijklmnopqrst:deadbeef@aws-0-us-west-2.pooler.supabase.com:5432/postgres' # secret-guard:allow-synthetic
+
+new_repo() { # path
+  git init -q "$1"
+  git -C "$1" config user.name "guard test"
+  git -C "$1" config user.email "guard-test@example.invalid"
+  git -C "$1" config commit.gpgsign false
+  # Keep the user's own global hooks/config out of these fixtures.
+  git -C "$1" config core.hooksPath .git/hooks
+  return 0
+}
+
+echo "== 8. the auto-push hook is inert until armed, then pushes, and never fails a commit =="
+git init -q --bare "$HOOKORIGIN"
+new_repo "$HOOKREPO"
+mkdir -p "$HOOKREPO/scripts"
+cp "$ROOT/scripts/setup-github.sh" "$HOOKREPO/scripts/setup-github.sh"
+cp "$ROOT/scripts/git-hooks/post-commit" "$HOOKREPO/.git/hooks/post-commit"
+cp "$ROOT/scripts/git-hooks/pre-commit" "$HOOKREPO/.git/hooks/pre-commit"
+chmod +x "$HOOKREPO/.git/hooks/post-commit" "$HOOKREPO/.git/hooks/pre-commit"
+git -C "$HOOKREPO" remote add origin "$HOOKORIGIN"
+printf 'one\n' > "$HOOKREPO/f.txt"
+# Has this exact commit reached the scratch origin? A SHA is asserted rather than a
+# commit count, because a push brings the whole ancestry with the tip.
+at_origin() { # sha
+  git --git-dir="$HOOKORIGIN" cat-file -e "$1" 2>/dev/null && echo present || echo absent
+}
+
+git -C "$HOOKREPO" add -A >/dev/null 2>&1
+git -C "$HOOKREPO" commit -qm one >/dev/null 2>&1
+check "unarmed post-commit sends nothing to origin" "absent" "$(at_origin "$(git -C "$HOOKREPO" rev-parse HEAD)")"
+
+git -C "$HOOKREPO" config neterp.autopush true
+printf 'two\n' > "$HOOKREPO/g.txt"
+git -C "$HOOKREPO" add g.txt >/dev/null 2>&1
+out="$(git -C "$HOOKREPO" commit -qm two 2>&1)"
+rc=$?
+check "an armed commit still exits 0" "0" "$rc"
+check "an armed commit reaches origin" "present" "$(at_origin "$(git -C "$HOOKREPO" rev-parse HEAD)")"
+if printf '%s' "$out" | grep -q '\[auto-push\]'; then
+  ok "reports the branch it pushed"
+else
+  bad "reports the branch it pushed" "[auto-push] <branch> -> origin" "$(printf '%s' "$out" | tail -2)"
+fi
+
+# A push that fails must never cost the local commit: the hook has to exit 0 anyway.
+git -C "$HOOKREPO" remote set-url origin "$SCRATCH/no-such-remote.git"
+printf 'three\n' > "$HOOKREPO/h.txt"
+git -C "$HOOKREPO" add h.txt >/dev/null 2>&1
+out="$(git -C "$HOOKREPO" commit -qm three 2>&1)"
+rc=$?
+check "a failed push does not fail the commit" "0" "$rc"
+check "the commit survives locally" "present" "$(git -C "$HOOKREPO" cat-file -e HEAD:h.txt 2>/dev/null && echo present || echo absent)"
+if printf '%s' "$out" | grep -q '\[auto-push\] push of'; then
+  ok "says the push failed, on stderr"
+else
+  bad "says the push failed, on stderr" "[auto-push] push of <branch> failed" "$(printf '%s' "$out" | tail -2)"
+fi
+
+echo "== 9. the credential scan fires on real-looking secrets and not on localhost =="
+new_repo "$SCANREPO"
+mkdir -p "$SCANREPO/scripts"
+# The scan is exercised through a copy, so the fixture cannot touch the real tree.
+cp "$ROOT/scripts/setup-github.sh" "$SCANREPO/scripts/setup-github.sh"
+printf 'DATABASE_URL=postgresql://erp:erp@localhost:5432/erp\n' > "$SCANREPO/.env.example"
+git -C "$SCANREPO" add -A >/dev/null 2>&1
+git -C "$SCANREPO" commit -qm initial >/dev/null 2>&1
+out="$(bash "$SCANREPO/scripts/setup-github.sh" --check-secrets 2>&1)"
+rc=$?
+check "a localhost URL does not fire" "0" "$rc"
+if printf '%s' "$out" | grep -q 'clean:'; then
+  ok "reports the tree as clean"
+else
+  bad "reports the tree as clean" "clean: no credential-looking values" "$(printf '%s' "$out" | tail -2)"
+fi
+
+# Negative controls. Each pattern the gate claims to catch is checked individually,
+# because a silently broken pattern is a false pass, which is the whole risk here.
+fire_and_check() { # description file contents expected-fragment
+  printf '%s\n' "$2" > "$SCANREPO/probe.txt"
+  git -C "$SCANREPO" add probe.txt >/dev/null 2>&1
+  local o r
+  o="$(bash "$SCANREPO/scripts/setup-github.sh" --check-secrets 2>&1)"
+  r=$?
+  check "$1" "1" "$r"
+  if printf '%s' "$o" | grep -q 'REFUSING to continue'; then
+    ok "  ...and says it is refusing"
+  else
+    bad "  ...and says it is refusing" "REFUSING to continue" "$(printf '%s' "$o" | tail -2)"
+  fi
+  if printf '%s' "$o" | grep -qF "$3"; then
+    ok "  ...and names the file it found"
+  else
+    bad "  ...and names the file it found" "$3" "$(printf '%s' "$o" | tail -2)"
+  fi
+  if printf '%s' "$o" | grep -q 'deadbeef'; then
+    bad "  ...and masks the password" "no plaintext password" "the password was echoed"
+  else
+    ok "  ...and masks the password"
+  fi
+  git -C "$SCANREPO" rm -q --cached probe.txt >/dev/null 2>&1
+  rm -f "$SCANREPO/probe.txt"
+}
+fire_and_check "a pooled managed-database password fires" "$LEAK" "probe.txt:1"
+fire_and_check "a GitHub token fires" "GITHUB_TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" "probe.txt:1" # secret-guard:allow-synthetic
+fire_and_check "an AWS key fires" "aws_access_key_id = AKIAIOSFODNN7EXAMPLE" "probe.txt:1"                        # secret-guard:allow-synthetic
+fire_and_check "a private key header fires" "-----BEGIN OPENSSH PRIVATE KEY-----" "probe.txt:1"                     # secret-guard:allow-synthetic
+fire_and_check "a supabase pooler host alone fires" "host=aws-0-us-west-2.pooler.supabase.com" "probe.txt:1"        # secret-guard:allow-synthetic
+
+# The opt-out must cover exactly one line. If it covered the whole file, a real secret
+# dropped next to a fixture would go unreported, which is the failure that matters.
+{
+  printf '%s # secret-guard:allow-synthetic\n' "$LEAK"
+  printf '%s\n' "$LEAK"
+} > "$SCANREPO/mixed.txt"
+git -C "$SCANREPO" add mixed.txt >/dev/null 2>&1
+out="$(bash "$SCANREPO/scripts/setup-github.sh" --check-secrets 2>&1)"
+check "an unmarked line still fires next to a marked one" "1" "$?"
+if printf '%s' "$out" | grep -q 'mixed.txt:2:'; then
+  ok "  ...reports the unmarked line"
+else
+  bad "  ...reports the unmarked line" "mixed.txt:2" "$(printf '%s' "$out" | tail -3)"
+fi
+if printf '%s' "$out" | grep -q 'mixed.txt:1:'; then
+  bad "  ...and stays quiet about the marked line" "no mixed.txt:1 finding" "the allowlisted line was reported"
+else
+  ok "  ...and stays quiet about the marked line"
+fi
+git -C "$SCANREPO" rm -q --cached mixed.txt >/dev/null 2>&1
+rm -f "$SCANREPO/mixed.txt"
+
+# The gate must go quiet again once the offending file is gone, or every later commit
+# in the fixture (and every commit a developer makes) would be blocked.
+out="$(bash "$SCANREPO/scripts/setup-github.sh" --check-secrets 2>&1)"
+check "the scan goes quiet after the leak is removed" "0" "$?"
+
+echo "== 10. the pre-commit guard blocks the leak, and has working escape hatches =="
+cp "$ROOT/scripts/git-hooks/pre-commit" "$SCANREPO/.git/hooks/pre-commit"
+chmod +x "$SCANREPO/.git/hooks/pre-commit"
+printf '%s\n' "$LEAK" > "$SCANREPO/leak.txt"
+git -C "$SCANREPO" add leak.txt >/dev/null 2>&1
+out="$(git -C "$SCANREPO" commit -qm leak 2>&1)"
+rc=$?
+check "the guard refuses the commit" "1" "$rc"
+check "nothing was committed" "absent" \
+  "$(git -C "$SCANREPO" cat-file -e HEAD:leak.txt 2>/dev/null && echo present || echo absent)"
+if printf '%s' "$out" | grep -q 'secret-guard'; then
+  ok "explains the block"
+else
+  bad "explains the block" "[secret-guard] commit blocked" "$(printf '%s' "$out" | tail -2)"
+fi
+if printf '%s' "$out" | grep -q 'deadbeef'; then
+  bad "does not echo the secret" "no plaintext secret" "the password was echoed"
+else
+  ok "does not echo the secret"
+fi
+
+out="$(git -C "$SCANREPO" commit -qm leak --no-verify 2>&1)"
+check "--no-verify overrides the guard" "0" "$?"
+git -C "$SCANREPO" reset -q --hard HEAD~1
+printf '%s\n' "$LEAK" > "$SCANREPO/leak.txt"
+git -C "$SCANREPO" add leak.txt >/dev/null 2>&1
+git -C "$SCANREPO" config neterp.secretguard false
+out="$(git -C "$SCANREPO" commit -qm leak 2>&1)"
+check "neterp.secretguard false overrides the guard" "0" "$?"
+git -C "$SCANREPO" reset -q --hard HEAD~1
+
+# A clean commit must stay quiet: a hook that chatters on every commit gets disabled,
+# and a disabled hook protects nothing.
+git -C "$SCANREPO" config --unset neterp.secretguard
+printf 'fine\n' > "$SCANREPO/normal.txt"
+git -C "$SCANREPO" add normal.txt >/dev/null 2>&1
+out="$(git -C "$SCANREPO" commit -qm normal 2>&1)"
+check "a clean commit still succeeds" "0" "$?"
+check "a clean commit stays silent" "" "$out"
 
 echo
 echo "== $PASS passed, $FAIL failed =="

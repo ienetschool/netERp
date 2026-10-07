@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Secret guard. Installed into .git/hooks/pre-commit by scripts/setup-github.sh.
+#
+# Refuses a commit when any tracked file looks like it contains a credential. The
+# repository is public, so a leaked database password would be permanently exposed
+# in the history; blocking at commit time is the only point where that is cheap.
+#
+# The scan itself lives in scripts/setup-github.sh (--check-secrets) so the hook and
+# the manual check can never drift apart.
+#
+# Skip once:    git commit --no-verify
+# Turn off:     git config neterp.secretguard false
+# Turn back on: git config --unset neterp.secretguard
+#
+# Hooks run with the working tree as the cwd, but resolve the root explicitly: a
+# worktree or a submodule changes where the hook file lives, not where the scan is.
+root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$root" ] || exit 0
+[ "$(git config --get neterp.secretguard || true)" != "false" ] || exit 0
+
+scan="$root/scripts/setup-github.sh"
+[ -f "$scan" ] || exit 0
+
+# The scan reads the index via `git ls-files`, so a staged new file is included.
+# Capture the output so a clean commit stays quiet and a blocked one is explained.
+if ! scan_out="$(bash "$scan" --check-secrets 2>&1)"; then
+  printf '%s\n' "$scan_out" >&2
+  echo "[secret-guard] commit blocked: move the value into a git-ignored .env," >&2
+  echo "[secret-guard] or commit with --no-verify to override." >&2
+  exit 1
+fi
+exit 0

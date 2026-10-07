@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Auto-push. Installed into .git/hooks/post-commit by scripts/setup-github.sh.
+#
+# Pushes the current branch after every commit, but only when neterp.autopush is
+# true, so a fresh checkout is inert by default.
+#
+# Arm it:   git config neterp.autopush true
+# Disarm:   git config --unset neterp.autopush
+#
+# This hook must never fail a commit. Losing the local commit is far worse than
+# losing the push, so every failure is reported and then swallowed (exit 0).
+[ "$(git config --get neterp.autopush || true)" = "true" ] || exit 0
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if GIT_TERMINAL_PROMPT=0 git push --quiet --no-progress origin "$branch" >/dev/null 2>&1; then
+  echo "[auto-push] $branch -> origin"
+else
+  echo "[auto-push] push of $branch failed; run: git push origin $branch" >&2
+fi
+exit 0
