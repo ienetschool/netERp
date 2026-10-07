@@ -166,7 +166,10 @@ for script in deploy-sync.sh deploy-host.sh deploy-local.sh setup-github.sh test
   if [ -x "$ROOT/scripts/$script" ]; then
     ok "$script is executable"
   else
-    bad "$script is executable" "mode +x" "$(stat -f '%Sp' "$ROOT/scripts/$script" 2>/dev/null || stat -c '%A' "$ROOT/scripts/$script")"
+    # GNU first, then BSD: on GNU, `stat -f` means --file-system and would happily
+    # print filesystem stats instead of failing over.
+    bad "$script is executable" "mode +x" \
+      "$(stat -c '%A' "$ROOT/scripts/$script" 2>/dev/null || stat -f '%Sp' "$ROOT/scripts/$script" 2>/dev/null || echo 'stat unavailable')"
   fi
 done
 
@@ -191,7 +194,11 @@ SCANREPO="$SCRATCH/scanrepo"
 LEAK='DATABASE_URL=postgresql://erp_api.abcdefghijklmnopqrst:deadbeef@aws-0-us-west-2.pooler.supabase.com:5432/postgres' # secret-guard:allow-synthetic
 
 new_repo() { # path
-  git init -q "$1"
+  # Pin the initial branch. git picks it from a build-time default (Apple's git ships
+  # `main`, upstream git still ships `master`), and section 12 drives the hook through
+  # refs/heads/main, so inheriting the ambient name makes the suite pass on one machine
+  # and fail on the next.
+  git init -q -b main "$1"
   git -C "$1" config user.name "guard test"
   git -C "$1" config user.email "guard-test@example.invalid"
   git -C "$1" config commit.gpgsign false
@@ -201,7 +208,7 @@ new_repo() { # path
 }
 
 echo "== 8. the auto-push hook is inert until armed, then pushes, and never fails a commit =="
-git init -q --bare "$HOOKORIGIN"
+git init -q --bare -b main "$HOOKORIGIN"
 new_repo "$HOOKREPO"
 mkdir -p "$HOOKREPO/scripts"
 cp "$ROOT/scripts/setup-github.sh" "$HOOKREPO/scripts/setup-github.sh"
@@ -462,7 +469,7 @@ echo "== 12. the pre-push guard blocks a leak that only exists in history =="
 # pre-push exists, so the central case below is a leak the working tree does not have.
 PUSHREPO="$SCRATCH/pushrepo"
 PUSHORIGIN="$SCRATCH/push-origin.git"
-git init -q --bare "$PUSHORIGIN"
+git init -q --bare -b main "$PUSHORIGIN"
 new_repo "$PUSHREPO"
 mkdir -p "$PUSHREPO/scripts"
 cp "$ROOT/scripts/setup-github.sh" "$PUSHREPO/scripts/setup-github.sh"
