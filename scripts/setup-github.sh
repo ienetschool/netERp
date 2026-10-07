@@ -246,11 +246,17 @@ fi
 echo "== 4/6 credentials =="
 ssh_authed=false
 if [ -f "$KEY" ]; then
-  if ssh -o BatchMode=yes -o ConnectTimeout=10 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+  # `ssh -T` exits 1 even when it authenticates ("does not provide shell access"), so
+  # under `set -o pipefail` the obvious `ssh ... | grep -q` can never be true -- it
+  # reported every working deploy key as unauthorized. Capture the banner instead of
+  # reading the pipeline's status.
+  ssh_banner="$(ssh -o BatchMode=yes -o ConnectTimeout=10 -T git@github.com 2>&1 || true)"
+  if printf '%s' "$ssh_banner" | grep -q "successfully authenticated"; then
     ssh_authed=true
     echo "   SSH deploy key: authorized"
   else
-    echo "   SSH deploy key: NOT authorized (git@github.com: Permission denied (publickey))"
+    echo "   SSH deploy key: NOT authorized"
+    printf '%s\n' "$ssh_banner" | sed 's/^/     /' >&2
   fi
 else
   echo "   SSH deploy key: absent ($KEY)"
