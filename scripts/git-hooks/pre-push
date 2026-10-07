@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Secret guard. Installed into .git/hooks/pre-push by scripts/setup-github.sh.
+#
+# Refuses a push whose commits would publish a credential. This is the companion to
+# pre-commit, and it exists because pre-commit only sees the working tree: a value
+# committed once and deleted in the next commit looks clean there, yet both objects
+# are still uploaded. The repository is public, so once they land the credential is
+# exposed permanently -- and removing it afterwards does not unpublish the old commit.
+#
+# The scan itself lives in scripts/setup-github.sh (--check-commits) so the hook and
+# the manual check can never drift apart.
+#
+# Skip once:    git push --no-verify
+# Turn off:     git config neterp.secretguard false
+# Turn back on: git config --unset neterp.secretguard
+#
+# git feeds the refs being pushed on stdin, one line each:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# Reading it (rather than scanning every commit ever) is what keeps the hook cheap on
+# a repository with a long history.
+root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$root" ] || exit 0
+[ "$(git config --get neterp.secretguard || true)" != "false" ] || exit 0
+
+scan="$root/scripts/setup-github.sh"
+[ -f "$scan" ] || exit 0
+
+zero="0000000000000000000000000000000000000000"
+ranges=""
+new_shas=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_sha" ] || continue
+  # A deletion pushes no object at all, and a local sha is never null.
+  case "$local_sha" in "$zero") continue ;; esac
+  if [ -n "$remote_sha" ] && [ "$remote_sha" != "$zero" ]; then
+    # Whatever the remote already has was published and cleared once; only the new
+    # commits above it can still leak something.
+    ranges="$ranges $remote_sha..$local_sha"
+  else
+    # The ref does not exist on the remote yet, so there is no boundary to diff
+    # against: exclude everything already reachable from a remote ref instead.
+    new_shas="$new_shas $local_sha"
+  fi
+done
+
+revs="$ranges$new_shas"
+# `--not` goes last so it applies to every sha in front of it, and so a second
+# `--not` can never invert an earlier range.
+[ -z "$new_shas" ] || revs="$revs --not --remotes"
+# Nothing to inspect: an empty repo, or a push that only deletes refs.
+[ -n "${revs// /}" ] || exit 0
+
+if ! scan_out="$(bash "$scan" --check-commits $revs 2>&1)"; then
+  printf '%s\n' "$scan_out" >&2
+  echo "[secret-guard] push blocked: a commit above would publish a credential," >&2
+  echo "[secret-guard] so the remote would keep it forever; push with --no-verify to override." >&2
+  exit 1
+fi
+exit 0

@@ -13,6 +13,8 @@
 #   * the credential scan quietly stopping matching, which would leak the production
 #     database password into a public repository (this shipped once and was missed)
 #   * the auto-push hook failing a commit, or pushing when it was never armed
+#   * the pre-push guard missing a credential that is in the history but not the tree,
+#     which is the only case a leak can still be stopped before it is published
 #
 # Everything runs in a scratch directory. It never contacts the host or GitHub, and
 # never touches the real working tree. Scratch git repositories are real ones, because
@@ -451,6 +453,172 @@ if printf '%s' "$out" | grep -q 'connection_limit is missing'; then
   ok "warns when the pool setting is absent"
 else
   bad "warns when the pool setting is absent" "WARNING: connection_limit is missing" "$(printf '%s' "$out" | tail -2)"
+fi
+
+echo "== 12. the pre-push guard blocks a leak that only exists in history =="
+# pre-commit reads the working tree through `git ls-files`, so a value that was
+# committed and then deleted in the next commit is invisible to it -- the tree is clean
+# -- while both objects are still uploaded by the push. That gap is the entire reason
+# pre-push exists, so the central case below is a leak the working tree does not have.
+PUSHREPO="$SCRATCH/pushrepo"
+PUSHORIGIN="$SCRATCH/push-origin.git"
+git init -q --bare "$PUSHORIGIN"
+new_repo "$PUSHREPO"
+mkdir -p "$PUSHREPO/scripts"
+cp "$ROOT/scripts/setup-github.sh" "$PUSHREPO/scripts/setup-github.sh"
+cp "$ROOT/scripts/git-hooks/pre-push" "$PUSHREPO/.git/hooks/pre-push"
+chmod +x "$PUSHREPO/.git/hooks/pre-push"
+git -C "$PUSHREPO" remote add origin "$PUSHORIGIN"
+
+# at_origin above is bound to the section 8 fixture; these assertions need their own.
+at_push_origin() { # sha
+  git --git-dir="$PUSHORIGIN" cat-file -e "$1" 2>/dev/null && echo present || echo absent
+}
+
+# The bare scan must be a no-op: `--check-commits` with no revisions is what an empty
+# ref list reduces to, and failing there would block a push of nothing.
+out="$(bash "$PUSHREPO/scripts/setup-github.sh" --check-commits 2>&1)"
+check "no revisions means nothing to scan" "0" "$?"
+check "  ...and prints nothing" "" "$out"
+
+# Fail open. A shallow clone, or an upstream that was never fetched, must not turn into
+# a blocked push on an unrelated branch: the hook can only ever lose by being too eager.
+bash "$PUSHREPO/scripts/setup-github.sh" --check-commits deadbeefdeadbeefdeadbeefdeadbeefdeadbeef \
+  >/dev/null 2>&1
+check "an unreadable revision fails open" "0" "$?"
+bash "$PUSHREPO/scripts/setup-github.sh" --check-commits "origin/nope..HEAD" >/dev/null 2>&1
+check "an unfetched upstream fails open" "0" "$?"
+
+# A base commit, then the leak: committed once, then deleted. Both files are tracked,
+# so the tree ends clean and only the history still carries the value.
+printf 'hello\n' > "$PUSHREPO/a.txt"
+git -C "$PUSHREPO" add -A >/dev/null 2>&1
+git -C "$PUSHREPO" commit -qm base >/dev/null 2>&1
+printf '%s\n' "$LEAK" > "$PUSHREPO/leak.txt"
+git -C "$PUSHREPO" add leak.txt >/dev/null 2>&1
+git -C "$PUSHREPO" commit -qm "add leak" >/dev/null 2>&1
+leak_sha="$(git -C "$PUSHREPO" rev-parse HEAD)"
+git -C "$PUSHREPO" rm -q leak.txt >/dev/null 2>&1
+git -C "$PUSHREPO" commit -qm "remove leak" >/dev/null 2>&1
+head_sha="$(git -C "$PUSHREPO" rev-parse HEAD)"
+
+check "the fixture's working tree really is clean" "" "$(git -C "$PUSHREPO" status --porcelain)"
+check "the leak really is gone from the tree" "absent" \
+  "$(git -C "$PUSHREPO" cat-file -e HEAD:leak.txt 2>/dev/null && echo present || echo absent)"
+
+# Direct, so the finding itself is asserted rather than just a non-zero exit.
+out="$(bash "$PUSHREPO/scripts/setup-github.sh" --check-commits "$leak_sha" 2>&1)"
+check "the commit scan sees a credential the tree no longer has" "1" "$?"
+if printf '%s' "$out" | grep -q 'leak.txt:1'; then
+  ok "  ...and names the file and line"
+else
+  bad "  ...and names the file and line" "<sha>:leak.txt:1" "$(printf '%s' "$out" | tail -2)"
+fi
+if printf '%s' "$out" | grep -q 'deadbeef'; then
+  bad "  ...and masks the password" "no plaintext password" "the password was echoed"
+else
+  ok "  ...and masks the password"
+fi
+
+# The ref list is git's stdin contract, so drive the hook through it directly: a ref the
+# remote does not have yet must widen the scan, and a sha the remote already has must
+# narrow it. This proves the derivation without depending on what a push happens to do.
+ZERO=0000000000000000000000000000000000000000
+run_hook() { # local-sha remote-sha
+  printf '%s\n' "refs/heads/main $1 refs/heads/main $2" | (cd "$PUSHREPO" && bash .git/hooks/pre-push)
+}
+out="$(printf '' | (cd "$PUSHREPO" && bash .git/hooks/pre-push) 2>&1)"
+check "an empty ref list is a no-op" "0" "$?"
+run_hook "$head_sha" "$ZERO" >/dev/null 2>&1
+check "an unknown remote sha scans everything unpushed" "1" "$?"
+run_hook "$head_sha" "$leak_sha" >/dev/null 2>&1
+check "  ...but a commit the remote already has is skipped" "0" "$?"
+
+out="$(git -C "$PUSHREPO" push origin main 2>&1)"
+rc=$?
+[ "$rc" -ne 0 ] && ok "the push is refused" || bad "the push is refused" "a non-zero exit" "$rc"
+if printf '%s' "$out" | grep -q 'secret-guard'; then
+  ok "  ...and explains why"
+else
+  bad "  ...and explains why" "[secret-guard] push blocked" "$(printf '%s' "$out" | tail -2)"
+fi
+check "  ...and nothing reached the remote" "absent" "$(at_push_origin "$leak_sha")"
+
+out="$(git -C "$PUSHREPO" push --no-verify origin main 2>&1)"
+check "--no-verify overrides the push guard" "0" "$?"
+check "  ...and the commits get through" "present" "$(at_push_origin "$leak_sha")"
+
+# A clean push must be allowed and stay quiet, or the guard gets turned off and then
+# protects nothing. git still prints its own summary, so assert on our own output.
+printf 'fine\n' > "$PUSHREPO/clean.txt"
+git -C "$PUSHREPO" add clean.txt >/dev/null 2>&1
+git -C "$PUSHREPO" commit -qm clean >/dev/null 2>&1
+clean_sha="$(git -C "$PUSHREPO" rev-parse HEAD)"
+out="$(git -C "$PUSHREPO" push origin main 2>&1)"
+check "a clean push is allowed" "0" "$?"
+check "  ...and reaches the remote" "present" "$(at_push_origin "$clean_sha")"
+if printf '%s' "$out" | grep -q 'secret-guard'; then
+  bad "  ...and stays quiet" "no guard output" "$(printf '%s' "$out" | tail -2)"
+else
+  ok "  ...and stays quiet"
+fi
+out="$(git -C "$PUSHREPO" push origin main 2>&1)"
+check "a push with nothing new succeeds" "0" "$?"
+
+# Escape hatch, so the guard is not a dead end in an emergency.
+git -C "$PUSHREPO" config neterp.secretguard false
+printf '%s\n' "$LEAK" > "$PUSHREPO/leak2.txt"
+git -C "$PUSHREPO" add leak2.txt >/dev/null 2>&1
+git -C "$PUSHREPO" commit -qm leak2 >/dev/null 2>&1
+leak2_sha="$(git -C "$PUSHREPO" rev-parse HEAD)"
+git -C "$PUSHREPO" push origin main >/dev/null 2>&1
+check "neterp.secretguard false disarms the push guard" "0" "$?"
+check "  ...and the commits get through" "present" "$(at_push_origin "$leak2_sha")"
+
+# Re-arming reports the value again, and that is correct rather than a false positive:
+# every commit above the remote sha is uploaded in full, so a tree that still holds the
+# value really would publish it. The guard is per-commit, not a line diff, precisely so
+# that a value added in one commit and deleted in the next -- the case this section is
+# built around -- cannot slip through.
+git -C "$PUSHREPO" config --unset neterp.secretguard
+printf 'fine2\n' > "$PUSHREPO/clean2.txt"
+git -C "$PUSHREPO" add clean2.txt >/dev/null 2>&1
+git -C "$PUSHREPO" commit -qm clean2 >/dev/null 2>&1
+out="$(git -C "$PUSHREPO" push origin main 2>&1)"
+check "re-arming reports a value still held at the tip" "1" "$?"
+if printf '%s' "$out" | grep -q 'leak2.txt'; then
+  ok "  ...naming the file that still holds it"
+else
+  bad "  ...naming the file that still holds it" "<sha>:leak2.txt:1" "$(printf '%s' "$out" | tail -2)"
+fi
+
+# The recovery is to get the value out of the unpushed commits, not to reach for
+# --no-verify. Resetting to what the remote already has and dropping the file in a single
+# new commit leaves no unpushed tree carrying it, so the guard lets go.
+git -C "$PUSHREPO" reset -q --hard "$leak2_sha"
+git -C "$PUSHREPO" rm -q leak2.txt >/dev/null 2>&1
+printf 'fine2\n' > "$PUSHREPO/clean2.txt"
+git -C "$PUSHREPO" add clean2.txt >/dev/null 2>&1
+git -C "$PUSHREPO" commit -qm clean2 >/dev/null 2>&1
+recovered_sha="$(git -C "$PUSHREPO" rev-parse HEAD)"
+out="$(git -C "$PUSHREPO" push origin main 2>&1)"
+check "dropping the value from the unpushed commit unblocks the push" "0" "$?"
+check "  ...and the commits reach the remote" "present" "$(at_push_origin "$recovered_sha")"
+
+# A new branch whose ancestors the remote already published must stay pushable. leak2.txt
+# is on origin by now and unpublishing it is impossible, so scanning the whole history
+# here would block every future branch forever -- turning the guard into a permanent
+# brick. That is what the --not --remotes exclusion buys, and it is why a push of a
+# brand-new ref narrows instead of widening.
+git -C "$PUSHREPO" branch feature "$recovered_sha" >/dev/null 2>&1
+out="$(git -C "$PUSHREPO" push origin feature:feature 2>&1)"
+check "a new branch is allowed when the only leak is already published" "0" "$?"
+check "  ...and the branch reaches the remote" "present" \
+  "$(git --git-dir="$PUSHORIGIN" rev-parse --verify --quiet refs/heads/feature >/dev/null 2>&1 && echo present || echo absent)"
+if printf '%s' "$out" | grep -q 'secret-guard'; then
+  bad "  ...and stays quiet" "no guard output" "$(printf '%s' "$out" | tail -2)"
+else
+  ok "  ...and stays quiet"
 fi
 
 echo

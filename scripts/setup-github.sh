@@ -4,6 +4,7 @@
 #   bash scripts/setup-github.sh                    # verify everything, install the hook (disabled)
 #   bash scripts/setup-github.sh --check-secrets    # only scan tracked files for leaked credentials
 #                                                   # (a line can opt out with: secret-guard:allow-synthetic)
+#   bash scripts/setup-github.sh --check-commits R  # scan the commits in revision range R (used by pre-push)
 #   bash scripts/setup-github.sh --token --push     # push over HTTPS with a fine-grained PAT
 #   bash scripts/setup-github.sh --auto-push        # enable the hook (needs a clean scan + a working credential)
 #   bash scripts/setup-github.sh --status           # report only, change nothing
@@ -22,8 +23,9 @@
 # gates must pass first: no tracked file may contain a credential-looking value, and a
 # push credential must actually work. A public repository is fine once the scan passes.
 #
-# Two hooks are installed into .git/hooks/ from scripts/git-hooks/, both inert until
-# configured (pre-commit blocks a leaked credential, post-commit auto-pushes):
+# Three hooks are installed into .git/hooks/ from scripts/git-hooks/, all inert until
+# configured (pre-commit blocks a leaked credential, pre-push blocks publishing one,
+# post-commit auto-pushes):
 #
 #   git config neterp.secretguard false   # allow a commit the scan would block
 #   git config neterp.autopush true       # arm the auto-push
@@ -42,18 +44,29 @@ BRANCH="main"
 
 MODE="setup"
 USE_TOKEN=false
+# Space-separated on purpose: macOS still ships bash 3.2, where expanding an empty
+# array under `set -u` is an error.
+SCAN_REVS=""
 for arg in "$@"; do
   case "$arg" in
     --auto-push) MODE="enable" ;;
     --status) MODE="status" ;;
     --check-secrets) MODE="scan" ;;
+    --check-commits) MODE="scan-commits" ;;
     --push) MODE="push" ;;
     --token) USE_TOKEN=true ;;
     -h | --help)
-      sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+      # Print every leading comment line, so the usage text cannot drift out of the
+      # range a hardcoded line count would have to keep in sync.
+      awk 'NR > 1 { if (/^#/) { sub(/^# ?/, ""); print } else exit }' "$0"
       exit 0
       ;;
     *)
+      # Everything after --check-commits is a revision, not a flag.
+      if [ "$MODE" = "scan-commits" ]; then
+        SCAN_REVS="$SCAN_REVS $arg"
+        continue
+      fi
       echo "unknown argument: $arg (try --help)" >&2
       exit 2
       ;;
@@ -70,15 +83,26 @@ cd "$ROOT"
 # A credentialed URL is matched first, then localhost/dev hosts are filtered out,
 # because .env.example and CI both legitimately point at a throwaway local database.
 # ---------------------------------------------------------------------------
-scan_secrets() {
-  local cred='postgres(ql)?://[^:/@[:space:]"]+:[^@[:space:]"]*@[A-Za-z0-9][A-Za-z0-9._-]*'
-  local devhost='@(localhost|127\.0\.0\.1|db|postgres|host\.docker\.internal)([:/]|$)'
-  local other='BEGIN (RSA |OPENSSH |EC |PGP )?PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|pooler\.supabase\.com|ref `[a-z0-9]{20}`'
-  # A scanner needs fixture data that looks exactly like the thing it detects, so a
-  # single line can opt out with this marker. Only the marked line is skipped, and
-  # adding it is a deliberate act that shows up in review.
-  local allow='secret-guard:allow-synthetic'
+# The patterns live outside the function because two scans use them: the tracked-file
+# scan below, and the commit scan (--check-commits) the pre-push hook runs. If they
+# drifted apart, a value one gate waved through would still be published by the other,
+# which is the only outcome that actually matters here.
+CRED_PATTERN='postgres(ql)?://[^:/@[:space:]"]+:[^@[:space:]"]*@[A-Za-z0-9][A-Za-z0-9._-]*'
+DEVHOST_PATTERN='@(localhost|127\.0\.0\.1|db|postgres|host\.docker\.internal)([:/]|$)'
+OTHER_PATTERN='BEGIN (RSA |OPENSSH |EC |PGP )?PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|pooler\.supabase\.com|ref `[a-z0-9]{20}`'
+# A scanner needs fixture data that looks exactly like the thing it detects, so a
+# single line can opt out with this marker. Only the marked line is skipped, and
+# adding it is a deliberate act that shows up in review.
+ALLOW_MARKER='secret-guard:allow-synthetic'
 
+# Mask everything between ":" and "@" so a finding can be reported without echoing
+# the credential itself into a terminal, a log, or a CI transcript.
+mask_secrets() { # newline-separated findings on stdout
+  printf '%s\n' "$1" | grep -v '^$' | sed -E 's#(://[^:[:space:]]*:)[^@[:space:]]*@#\1***@#g'
+  return 0
+}
+
+scan_secrets() {
   # `xargs COMMAND` with an empty input runs COMMAND once with no file arguments on
   # GNU systems, which would make grep wait on stdin and hang every commit. A repo
   # with nothing staged yet is exactly that case, so stop before xargs.
@@ -90,16 +114,67 @@ scan_secrets() {
   fi
 
   local a b
-  a="$( { git ls-files -z | xargs -0 grep -nE "$cred" 2>/dev/null | grep -vE "$devhost" | grep -vF "$allow"; } || true)"
-  b="$( { git ls-files -z | xargs -0 grep -nE "$other" 2>/dev/null | grep -vF "$allow"; } || true)"
+  a="$( { git ls-files -z | xargs -0 grep -nE "$CRED_PATTERN" 2>/dev/null | grep -vE "$DEVHOST_PATTERN" | grep -vF "$ALLOW_MARKER"; } || true)"
+  b="$( { git ls-files -z | xargs -0 grep -nE "$OTHER_PATTERN" 2>/dev/null | grep -vF "$ALLOW_MARKER"; } || true)"
 
   if [ -n "$a" ] || [ -n "$b" ]; then
-    # Mask everything between ":" and "@" so the finding itself is not echoed in full.
-    printf '%s\n%s\n' "$a" "$b" | grep -v '^$' | sed -E 's#(://[^:[:space:]]*:)[^@[:space:]]*@#\1***@#g'
+    mask_secrets "$(printf '%s\n%s' "$a" "$b")"
     return 1
   fi
   return 0
 }
+
+# ---------------------------------------------------------------------------
+# Commit scan. The pre-push hook runs this over the commits about to be published.
+# It reads the history, not the working tree, and that is the whole point: a value
+# committed once and deleted in the next commit is invisible to the tracked-file scan
+# (the tree is clean) while both objects are still uploaded. The repository is
+# public, so once they land the credential is exposed permanently.
+#
+# Fails open. A revision that will not resolve -- a shallow clone, an upstream that
+# was never fetched, the all-zeroes sha of a ref the remote does not have yet --
+# contributes nothing, so an unreadable object can never block an unrelated push.
+# ---------------------------------------------------------------------------
+scan_commits() { # $1: space-separated rev-list arguments
+  # Unquoted expansion on purpose: the caller may hand over a range
+  # ("origin/main..HEAD") or flags ("<sha> --not --remotes").
+  local args="$1"
+  [ -n "${args// /}" ] || return 0
+
+  local commits
+  commits="$(git rev-list $args 2>/dev/null || true)"
+  [ -n "$commits" ] || return 0
+
+  local sha found hits=""
+  for sha in $commits; do
+    found="$(
+      {
+        git grep -nE "$CRED_PATTERN" "$sha" 2>/dev/null | grep -vE "$DEVHOST_PATTERN" | grep -vF "$ALLOW_MARKER"
+        git grep -nE "$OTHER_PATTERN" "$sha" 2>/dev/null | grep -vF "$ALLOW_MARKER"
+      } || true
+    )"
+    [ -z "$found" ] || hits="$hits$found"$'\n'
+  done
+
+  if [ -n "$hits" ]; then
+    mask_secrets "$hits"
+    return 1
+  fi
+  return 0
+}
+
+# --check-commits is a pure scan used by the pre-push hook, so it exits before
+# anything here touches the identity, the remote, or the installed hooks.
+if [ "$MODE" = "scan-commits" ]; then
+  if commits_out="$(scan_commits "$SCAN_REVS")"; then
+    exit 0
+  fi
+  printf '%s\n' "$commits_out" >&2
+  printf '%s\n' \
+    "REFUSING to continue: a commit above would publish a credential." \
+    "Remove the value in a new commit, or push with --no-verify to override." >&2
+  exit 1
+fi
 
 echo "== 1/6 credential scan =="
 # The pre-commit hook calls this same function, so a change here changes what
@@ -249,7 +324,7 @@ fi
 # runs on every commit is reviewable and covered by scripts/test-deploy-guards.sh,
 # rather than existing only as a heredoc that nothing ever executes in a test.
 # ---------------------------------------------------------------------------
-HOOKS="pre-commit post-commit"
+HOOKS="pre-commit pre-push post-commit"
 HOOK="$ROOT/.git/hooks/post-commit"
 if [ "$MODE" = "status" ]; then
   echo "== 6/6 git hooks (--status: not writing) =="
@@ -297,8 +372,9 @@ fi
 cat <<EOM
 
 -- next steps ---------------------------------------------------------------
-0. Installed hooks (both inert until enabled):
+0. Installed hooks (all inert until enabled):
      pre-commit  blocks a commit containing a credential   git config neterp.secretguard false
+     pre-push    blocks a push that would publish one        git config neterp.secretguard false
      post-commit pushes the current branch                  git config neterp.autopush true
 1. Push (creates main on the remote -- it is empty today):
      bash scripts/setup-github.sh --token --push     # PAT over HTTPS

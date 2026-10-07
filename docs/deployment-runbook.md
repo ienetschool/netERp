@@ -265,10 +265,11 @@ before doing anything destructive.
 
 `bash scripts/setup-github.sh` (`npm run github:setup`) makes a checkout ready to push:
 it scans tracked files for leaked credentials, sets the commit identity if absent, points
-`origin` at the repository, verifies a push credential, and installs two git hooks — a
-`pre-commit` secret guard and a `post-commit` auto-pusher. Both hook bodies are
-version-controlled in `scripts/git-hooks/` and copied into `.git/hooks/`, so the code that
-runs on every commit is reviewable and covered by `npm run test:deploy`.
+`origin` at the repository, verifies a push credential, and installs three git hooks — a
+`pre-commit` secret guard, a `pre-push` secret guard, and a `post-commit` auto-pusher. All
+three hook bodies are version-controlled in `scripts/git-hooks/` and copied into
+`.git/hooks/`, so the code that runs on every commit and every push is reviewable and
+covered by `npm run test:deploy`.
 
 ```bash
 npm run github:setup                              # verify + install the hook (disabled)
@@ -313,8 +314,31 @@ keychain access from the hook may raise a macOS permission prompt.
 commit if it finds anything, so a credential cannot enter the history of a public
 repository. It is quiet on a clean commit — a hook that chatters gets disabled, and a
 disabled hook protects nothing. Escape hatches: `git commit --no-verify` for one commit,
-`git config neterp.secretguard false` to switch it off. Re-install both hooks with
+`git config neterp.secretguard false` to switch it off. Re-install all hooks with
 `npm run github:setup`.
+
+**The `pre-push` secret guard** covers what `pre-commit` structurally cannot. `pre-commit`
+sees only the working tree, so a value committed once and deleted in the next commit looks
+clean there — yet both objects are still uploaded, and on a public repository the exposure
+is permanent, because deleting the commit afterwards does not unpublish it. The push guard
+scans **commits**, not the tree, over exactly the range a push would send: it reads git's
+stdin contract (`<local ref> <local sha> <remote ref> <remote sha>`) and diffs each local
+sha against the remote sha the remote already has, so a long history costs nothing. For a
+ref the remote does not have yet there is no boundary to diff against, so it excludes
+everything reachable from a remote ref (`--not --remotes`) instead — which also keeps an
+already-published value from blocking every future branch forever, since it cannot be
+unpublished anyway. The scan itself is the same code path as the manual check
+(`--check-commits`, shared with step 1), so the two can never drift apart, and it fails
+**open**: an unreadable revision or a shallow clone must not turn into a blocked push on
+an unrelated branch. Escape hatches are the same: `git push --no-verify` for one push,
+`git config neterp.secretguard false` to switch it off.
+
+A push that the guard refuses prints the matching `<sha>:<path>:<line>` and then
+`REFUSING to continue: a commit above would publish a credential.` The recovery is to get
+the value out of the unpushed commits — rewrite them, or reset to what the remote already
+has and drop the value in a single new commit — **not** to reach for `--no-verify`.
+`npm run github:setup -- --check-commits <revs>` runs the same scan by hand, e.g.
+`--check-commits --all --not --remotes` to sweep every unpushed commit before a first push.
 
 ### 4.5 Deploy safety tests
 
@@ -349,6 +373,13 @@ build if:
 - the auto-push hook pushes before it is armed, stops pushing once armed, or fails a
   commit when the push fails
 - the pre-commit guard lets a marked fixture hide an unmarked secret in the same file
+- the pre-push guard misses a leak that exists only in history — the value committed once
+  and deleted in the next commit, which the working tree no longer holds. The fixture
+  builds that exact pair and asserts the push is refused, explains itself, and puts
+  nothing on the remote, while the manual `--check-commits` scan and a new branch whose
+  only leak is already published both stay allowed, an empty ref list is a no-op, an
+  unreadable revision fails open, `--no-verify` overrides, and `neterp.secretguard false`
+  disarms it
 
 Each of these was checked by mutating the script under test and confirming the suite goes
 red, so the assertions are known to fail on the defect rather than merely pass on the
